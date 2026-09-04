@@ -82,7 +82,7 @@ docker compose run --rm backend alembic upgrade head
 1. 到 [supabase.com](https://supabase.com) 建立新專案。
 2. 到 Project Settings → API，複製 `Project URL`、`anon public` key、`service_role` key。
 3. 到 Project Settings → Data API，把「**Enable Data API**」關掉（table 存取不經過這層；Storage/Auth 不受影響）。
-4. 把 `.env` 的 `DATABASE_URL`、`SUPABASE_URL`、`SUPABASE_ANON_KEY`、`SUPABASE_SERVICE_ROLE_KEY`、`VITE_SUPABASE_URL`、`VITE_SUPABASE_ANON_KEY` 換成雲端的值，`DATABASE_URL` 用 Project Settings → Database 的直連連線字串（不要用 pooler，FastAPI 是長連線 process）。
+4. 把 `.env` 的 `DATABASE_URL`、`SUPABASE_URL`、`SUPABASE_ANON_KEY`、`SUPABASE_SERVICE_ROLE_KEY`、`VITE_SUPABASE_URL`、`VITE_SUPABASE_ANON_KEY` 換成雲端的值。`DATABASE_URL` 要用 Project Settings → Database → Connection string 的 **Session pooler**（不是 Direct connection，也不是 Transaction pooler）——Supabase 現在的直連 host 只有 IPv6，Docker 容器預設連不上會出現 `Network is unreachable`；Session pooler 支援 IPv4，且跟直連一樣是 session 模式（支援 prepared statements 等），適合 FastAPI 這種長連線 process。注意 pooler 連線的使用者名稱要帶上 project ref（`postgres.<ref>`，不是單純 `postgres`）。
 5. 對雲端跑一次 `alembic upgrade head`，schema 完全一致。
 
 ### 5. 環境變數

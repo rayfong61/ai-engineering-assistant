@@ -1,4 +1,5 @@
 import { Navigate, Route, Routes } from 'react-router-dom'
+import Spinner from './components/Spinner'
 import { useSession } from './hooks/useSession'
 import Login from './pages/Login'
 import ProjectDetail from './pages/ProjectDetail'
@@ -6,7 +7,13 @@ import Projects from './pages/Projects'
 
 function RequireAuth({ children }) {
   const { session, loading } = useSession()
-  if (loading) return <div className="p-8 text-gray-500">Loading...</div>
+  if (loading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <Spinner size="lg" label="載入中..." className="text-slate-500" />
+      </div>
+    )
+  }
   if (!session) return <Navigate to="/login" replace />
   return children
 }

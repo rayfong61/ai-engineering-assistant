@@ -8,9 +8,15 @@ async function authHeader() {
   return token ? { Authorization: `Bearer ${token}` } : {}
 }
 
+async function throwForStatus(res, fallbackMessage) {
+  if (res.ok) return
+  const body = await res.json().catch(() => null)
+  throw new Error(body?.detail || fallbackMessage)
+}
+
 export async function apiGet(path) {
   const res = await fetch(`${API_BASE}${path}`, { headers: await authHeader() })
-  if (!res.ok) throw new Error(`GET ${path} failed: ${res.status}`)
+  await throwForStatus(res, `GET ${path} failed: ${res.status}`)
   return res.json()
 }
 
@@ -20,6 +26,14 @@ export async function apiPost(path, body) {
     headers: { 'Content-Type': 'application/json', ...(await authHeader()) },
     body: JSON.stringify(body),
   })
-  if (!res.ok) throw new Error(`POST ${path} failed: ${res.status}`)
+  await throwForStatus(res, `POST ${path} failed: ${res.status}`)
   return res.json()
+}
+
+export async function apiDelete(path) {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: 'DELETE',
+    headers: await authHeader(),
+  })
+  await throwForStatus(res, `DELETE ${path} failed: ${res.status}`)
 }
