@@ -1496,27 +1496,34 @@ RAG Evaluation
 
 ---
 
-# 37. Three-Day Development Plan
+# 37. Five-Day Development Plan
 
-## Day 1 — Foundation + RAG
+## Risk-reduction simplifications (apply across all 5 days)
+
+```text
+1. Gmail OAuth 使用獨立的 Gmail-only OAuth flow，
+   不透過延伸 Supabase Auth 的 login scope 取得。
+   兩組 client / 兩組 token，互不依賴。
+   若時程吃緊，可隨時退回 EMAIL_MODE=mock，
+   demo 完整性不受影響（Human-in-the-loop 才是重點，
+   不是「真的寄出去」）。
+
+2. Authorization 第一版只做「是否為 project 成員」的檢查，
+   不做 owner/member 差異化權限（例如 member 能否刪除文件）。
+   role 欄位保留，differentiated permission 留到有餘裕再做。
+```
+
+## Day 1 — Foundation + Auth + Project
 
 ```text
 Docker
 React
 FastAPI
-Supabase
-Google OAuth
+Supabase 專案設定（Auth / Postgres / Storage）
+Google Login（Supabase Auth）
 Database Schema
-Project
-Authorization
-
-PDF Upload
-Storage
-PDF Parsing
-Chunking
-Voyage Embedding
-pgvector
-RAG
+Project CRUD
+Authorization（membership-only check）
 ```
 
 Day 1 最終成果：
@@ -1526,6 +1533,28 @@ Login
  ↓
 Create Project
  ↓
+（同帳號可見自己的 Project，跨帳號互相看不到）
+```
+
+---
+
+## Day 2 — RAG Pipeline
+
+```text
+PDF Upload
+Storage
+PDF Parsing
+Chunking
+Voyage Embedding
+pgvector
+RAG Retrieval
+Claude Answer Generation
+Source / Page Citation
+```
+
+Day 2 最終成果：
+
+```text
 Upload PDF
  ↓
 Build Knowledge Base
@@ -1537,71 +1566,78 @@ RAG
 Source + Page
 ```
 
+風險提醒：中文工程 PDF 常含表格與圖面，文字抽取品質可能不理想，預留時間人工檢查抽取結果、必要時調整 chunking 或改用更適合的 PDF parser。
+
 ---
 
-# Day 2 — AI Workflow
+## Day 3 — Vision + Agent + MCP
 
 ```text
 Claude Vision
- ↓
-Agent
- ↓
-MCP
- ↓
-Meeting Summary
- ↓
-Email Draft
- ↓
-Human Confirmation
- ↓
-Mock Email
+Agent（工具選擇邏輯）
+MCP Server（search_documents, send_email）
+Agent → MCP Client 串接
+Meeting Summary 生成
 ```
 
-Day 2 最終成果：
+Day 3 最終成果：
 
 ```text
-PDF
-+
-Engineering Image
+PDF + Engineering Image
+ ↓
+RAG + Vision
  ↓
 Claude
  ↓
 Meeting Summary
+```
+
+風險提醒：Python MCP SDK 是團隊最不熟悉的部分，優先把 search_documents / send_email 包成最簡單的 tool wrapper，不要在協定細節上過度打磨。若嚴重卡關，可依 spec.md 舊有彈性原則，先把 MCP Server 邏輯併入 backend process，待穩定後再視時間拆分。
+
+---
+
+## Day 4 — Email Draft + Preview + Gmail OAuth
+
+```text
+Email Draft 生成
+Email Preview UI
+Confirm & Send
+Mock Email（EMAIL_MODE=mock）
+Gmail OAuth（獨立 flow，見上方風險簡化）
+Gmail API 串接
+```
+
+Day 4 最終成果：
+
+```text
+Meeting Summary
+ ↓
+Email Draft
  ↓
 Email Preview
  ↓
-Confirm
+Confirm & Send
  ↓
-Mock Send
+Mock Send（一定要先跑通）
+ ↓
+Real Gmail Send（有餘裕才做，跑不完就停在 Mock）
 ```
 
 ---
 
-# Day 3 — Gmail + Polish
+## Day 5 — Buffer + Polish + Demo Prep
 
 ```text
-Google Gmail OAuth
- ↓
-Gmail API
- ↓
-MCP send_email()
- ↓
-Real Email
-```
-
-再處理：
-
-```text
-UI
+Gmail OAuth 收尾（若 Day 4 未完成，此日截止仍卡關則退回 Mock Email）
+UI Polish
 Error Handling
 Activity Log
-README
-Demo Script
+端到端完整跑 3-5 次，找出並修正流程斷點
+README / Demo Script
+面試講稿與問答準備
 ```
 
-如果 Gmail OAuth 花費過多時間：
-
-> 保留 Mock Email，確保完整 AI Workflow 可以穩定展示。
+Definition of Done（第 5 天結束時）：完整 demo flow（Login → Project → PDF → RAG → Vision → Agent → Meeting Summary → Email Preview → Confirm → Send/Mock Send）至少能穩定重現 3 次以上，不需要臨場除錯。
 
 ---
 

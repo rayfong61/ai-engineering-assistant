@@ -41,7 +41,9 @@ Implement strictly P0 → P1 → P2 (§36), verifying the previous stage still w
 - **P1**: Claude Vision, Agent, MCP, Email Draft generation, Human confirmation, Mock Email (`EMAIL_MODE=mock`).
 - **P2**: Gmail OAuth, real Gmail API, Activity Log, UI polish, error handling, RAG evaluation.
 
-Mirrors the three-day plan in §37: Day 1 = foundation + RAG (this day now also carries Supabase setup, Google OAuth, DB schema, and authorization — heavier than a plain local-Docker Day 1, so budget time accordingly). Day 2 = Vision/Agent/MCP/mock email. Day 3 = Gmail OAuth + polish (fall back to mock email if OAuth overruns).
+Mirrors the five-day plan in §37 (this project is being built ahead of a specific job interview, so the schedule assumes 5 dedicated days, not 3): Day 1 = Docker/React/FastAPI scaffold + Supabase (Auth/Postgres/Storage) + Google Login + Project CRUD + membership-only authorization. Day 2 = PDF → chunking → Voyage embedding → pgvector → RAG + citations (budget extra time here — Chinese engineering PDFs with tables/drawings often extract poorly). Day 3 = Claude Vision + Agent tool-selection logic + MCP server (search_documents, send_email) — the MCP SDK is the least-familiar piece, keep the tool wrappers minimal rather than polishing protocol details. Day 4 = Email draft + Preview + Confirm/Send + mock email (get mock working first), then Gmail OAuth. Day 5 = buffer — finish or abandon Gmail OAuth (mock email is an acceptable fallback), polish, and run the full demo end-to-end 3-5 times until it reproduces without live debugging.
+
+Two risk-reduction simplifications apply throughout (§37): (a) Gmail OAuth is a fully separate flow from Supabase Auth's Google login — not an extension of the login scope — so a stall on one doesn't block the other; (b) authorization starts as a simple "is this user a project member" check, not full owner/member role differentiation (the `role` column stays for later).
 
 ## Target architecture (spec2.md §4)
 
