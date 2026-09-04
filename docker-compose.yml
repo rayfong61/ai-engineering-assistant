@@ -1,0 +1,35 @@
+services:
+  frontend:
+    build: ./frontend
+    ports:
+      - "5173:5173"
+    env_file:
+      - .env
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/index.html:/app/index.html
+    depends_on:
+      - backend
+
+  backend:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./backend/app:/app/app
+      - ./backend/tests:/app/tests
+      - ./backend/alembic:/app/alembic
+      - ./backend/alembic.ini:/app/alembic.ini
+      - ./data:/app/data
+
+# Database/Auth/Storage all come from the local Supabase CLI stack
+# (`supabase start`, see supabase/config.toml) — not a standalone
+# container here, so local dev matches the real Supabase project 1:1.
+# Reach it from these containers via host.docker.internal.
+#
+# mcp-server is added in Day 3 (spec2.md section 21, section 37) once
+# search_documents / send_email tools exist to wrap.
