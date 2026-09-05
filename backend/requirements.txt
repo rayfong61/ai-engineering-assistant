@@ -8,5 +8,8 @@ supabase
 pyjwt[crypto]
 python-dotenv
 python-multipart
+pymupdf
+voyageai
+anthropic
 pytest
 httpx

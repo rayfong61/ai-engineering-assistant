@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project status
 
-Day 1 (spec2.md §37) is implemented and verified end-to-end: Docker scaffold, Supabase Auth (Google + Email/Password), Project CRUD, membership-only authorization. `spec2.md` is the full specification and remains the source of truth; this file summarizes the parts most likely to be violated by default AI behavior, plus real implementation details that emerged during Day 1 and aren't in the spec (see "Implementation notes beyond the spec" below). Days 2–5 are not yet built — follow §36/§37 build order for those.
+Day 1 (spec2.md §37) is implemented and verified end-to-end: Docker scaffold, Supabase Auth (Google + Email/Password), Project CRUD, membership-only authorization. Day 2 is also implemented and verified end-to-end against a real T3 engineering PDF (PDF upload → Supabase Storage → PyMuPDF text extraction → fixed-size chunking → Voyage embedding → pgvector → Claude-generated answer with page citations); see "Day 2 implementation notes" below for details not in the spec. `spec2.md` is the full specification and remains the source of truth; this file summarizes the parts most likely to be violated by default AI behavior, plus real implementation details that emerged during Days 1–2 and aren't in the spec (see "Implementation notes beyond the spec" below). Days 3–5 are not yet built — follow §36/§37 build order for those.
 
 `spec.md` is a superseded earlier draft (local-Docker-only, no auth, no multi-tenancy, ChromaDB) kept for history — do not follow it. `spec2.md` replaces it with a Supabase-backed, multi-tenant architecture.
 
@@ -77,19 +77,24 @@ frontend/            React + Vite + Tailwind
   src/
     App.jsx, main.jsx, index.css
     pages/           Login.jsx (Google + Email/Password), Projects.jsx, ProjectDetail.jsx
+    components/      Button/Input/Alert/Card/Badge/EmptyState/Tabs/Header/PageShell/Spinner,
+                      DocumentsPanel.jsx, ChatPanel.jsx (Day 2)
     hooks/           useSession.js
     lib/             supabaseClient.js, api.js
 backend/app/
   main.py
-  api/               auth.py, projects.py   (documents/chat/vision/agent/email land Day 2-4)
+  api/               auth.py, projects.py, documents.py, chat.py   (vision/agent/email land Day 3-4)
   core/              config.py, database.py (SQLAlchemy engine/session),
                       auth.py (JWKS verification), authorization.py,
-                      supabase_client.py (Storage/Auth-admin only, Day 2+)
+                      supabase_client.py (Storage/Auth-admin only)
   models/            SQLAlchemy ORM: project.py, document.py, conversation.py, email_log.py
-  schemas/           project.py (Pydantic)
+  schemas/           project.py, document.py (Pydantic)
+  services/          pdf_service.py (extract/chunk), embedding_service.py (Voyage),
+                      claude_service.py (RAG generation), rag_service.py (ingest/retrieve orchestration)
   alembic/           env.py, versions/0001_initial_schema.py
   alembic.ini
 data/temp/
+data/samples/        gitignored -- sample T3 PDFs used for local extraction/RAG testing, not committed
 supabase/            config.toml (local CLI stack config, spec2.md doesn't mention this —
                      it's a Day-1 addition, see below)
 docker-compose.yml   services: frontend, backend (postgres/auth/storage come from `supabase start`, not here)
@@ -134,6 +139,20 @@ These are Day 1 decisions/discoveries that aren't in `spec2.md` but should be tr
 4. **Email/Password login exists alongside Google login, for local dev convenience only.** `spec2.md`'s demo flow (§2, §39) is Google-login-only — don't remove the Google button or make Email/Password the primary flow in any user-facing copy. It's there because wiring real Google OAuth requires external setup (Google Cloud Console + Supabase provider config) that shouldn't block testing the rest of the stack; `supabase/config.toml` has `enable_confirmations = false` under `[auth.email]` so signup doesn't need a confirmation-email round trip locally.
 
 5. **The cloud project's `DATABASE_URL` must use the Session Pooler, not the direct connection.** Supabase's direct-connection host (`db.<ref>.supabase.co:5432`) is IPv6-only; Docker containers have no IPv6 route by default, so `alembic upgrade head` / the app fail with `Network is unreachable`. Use the Session Pooler connection string instead (`postgres.<ref>@aws-0-<region>.pooler.supabase.com:5432` — note the username includes the project ref) — it's IPv4 and, unlike the Transaction Pooler, still supports prepared statements/session state, so it's fine for FastAPI's long-running process. Also: Alembic's `alembic.ini` is backed by `configparser`, which treats `%` as its own interpolation syntax — a URL-encoded password containing `%25` breaks `config.set_main_option()` unless escaped to `%%` first (see `backend/alembic/env.py`).
+
+## Day 2 implementation notes
+
+Verified against 4 real public T3 engineering PDFs (129 pages total; see `data/samples/`, gitignored — not committed, copyrighted third-party content). Full pipeline (upload → extract → chunk → embed → retrieve → generate) confirmed end-to-end via direct API calls against the real local Supabase stack, real Voyage AI, and real Claude API — not just unit tests.
+
+1. **PyMuPDF (`pymupdf`, imported as `pymupdf`, not the older `fitz` alias) for text extraction.** Chinese body text extracts cleanly with correct encoding. Confirmed risk from spec2.md §37: tables lose their grid structure — cells come out as a flat sequence of lines with no column association (e.g. a "year | passenger count" table becomes a run of years and numbers with no pairing). Accepted as-is for MVP (numbers/labels are still present for semantic retrieval, just not precisely aligned) — do not build table-aware extraction unless retrieval quality on tabular questions turns out to actually matter in the demo.
+
+2. **Chunking uses character count as a token-count proxy, not a real tokenizer.** `CHUNK_SIZE=1000` / `CHUNK_OVERLAP=150` (`backend/app/services/pdf_service.py`) approximate spec2.md §12's 800-1200 token / 100-200 overlap target — Chinese text runs roughly 1 token/char under most tokenizers, so pulling in `tiktoken` or similar for this estimate would be over-engineering. Chunks never cross a page boundary, so `page` metadata stays exact.
+
+3. **Storage bucket (`engineering-documents`) is created lazily at runtime**, not via `supabase/config.toml` or a migration — `documents.py`'s `_ensure_bucket()` calls `storage.create_bucket` and swallows the "already exists" error. No local-only bucket config exists for it, so this same code path provisions it identically on first use against the cloud project too.
+
+4. **Background ingestion runs on its own DB session, not the request's.** `BackgroundTasks` (FastAPI) executes after the upload response is sent, by which point the request-scoped `Depends(get_db)` session is already closed — `_process_document_task` opens a fresh `SessionLocal()` instead. Tests that upload documents monkeypatch `rag_service.ingest_document` to a no-op (see `tests/test_documents.py`) so the suite doesn't make real Voyage API calls on every run; the real ingestion path is covered by manual end-to-end testing plus `tests/test_rag.py`'s pure-DB tests of `retrieve_chunks` (project isolation, cosine-distance ordering) using hand-inserted embedding vectors.
+
+5. **`CLAUDE_MODEL` defaults to `claude-sonnet-5`.**
 
 ## LLM / embedding providers
 

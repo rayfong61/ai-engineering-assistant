@@ -20,8 +20,15 @@ DATABASE_URL = os.getenv(
 )
 
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
+CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "claude-sonnet-5")
+
 VOYAGE_API_KEY = os.getenv("VOYAGE_API_KEY", "")
-VOYAGE_EMBEDDING_MODEL = os.getenv("VOYAGE_EMBEDDING_MODEL", "")
+# Must match document.py's EMBEDDING_DIM (1024) -- confirmed against Voyage
+# AI's docs before Day 2 ingestion, per spec2.md section 9.
+VOYAGE_EMBEDDING_MODEL = os.getenv("VOYAGE_EMBEDDING_MODEL", "voyage-4-large")
+
+# Fixed bucket name (spec2.md section 10) -- not user-configurable.
+STORAGE_BUCKET = "engineering-documents"
 
 EMAIL_MODE = os.getenv("EMAIL_MODE", "mock")
 GMAIL_CLIENT_ID = os.getenv("GMAIL_CLIENT_ID", "")

@@ -2,6 +2,8 @@ import { Activity, ArrowLeft, FileText, Image, LogOut, MessageSquare } from 'luc
 import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import Button from '../components/Button'
+import ChatPanel from '../components/ChatPanel'
+import DocumentsPanel from '../components/DocumentsPanel'
 import PageShell from '../components/PageShell'
 import Spinner from '../components/Spinner'
 import Tabs from '../components/Tabs'
@@ -9,8 +11,8 @@ import { apiGet } from '../lib/api'
 import { supabase } from '../lib/supabaseClient'
 
 const TABS = [
-  { key: 'documents', label: 'Documents', icon: FileText, placeholder: '文件上傳與 RAG 問答將在 Day 2 加入。' },
-  { key: 'chat', label: 'Chat', icon: MessageSquare, placeholder: '對話功能將在 Day 2 加入。' },
+  { key: 'documents', label: 'Documents', icon: FileText },
+  { key: 'chat', label: 'Chat', icon: MessageSquare },
   { key: 'vision', label: 'Vision', icon: Image, placeholder: '工程圖片分析將在 Day 3 加入。' },
   { key: 'activity', label: 'Activity', icon: Activity, placeholder: 'Activity Log 將在 Day 5 加入。' },
 ]
@@ -54,7 +56,20 @@ export default function ProjectDetail() {
         <>
           <h1 className="mb-4 text-xl font-semibold text-slate-900">{project.name}</h1>
           <Tabs tabs={TABS} activeKey={tab} onChange={setTab} />
-          <p className="text-slate-500">{TABS.find((t) => t.key === tab)?.placeholder}</p>
+
+          {/* Hidden via CSS rather than unmounted on tab switch -- keeping
+              these mounted preserves ChatPanel's in-progress conversation
+              and DocumentsPanel's polling instead of resetting on every
+              switch back to the tab. */}
+          <div hidden={tab !== 'documents'}>
+            <DocumentsPanel projectId={id} />
+          </div>
+          <div hidden={tab !== 'chat'}>
+            <ChatPanel projectId={id} />
+          </div>
+          {(tab === 'vision' || tab === 'activity') && (
+            <p className="text-slate-500">{TABS.find((t) => t.key === tab)?.placeholder}</p>
+          )}
         </>
       )}
     </PageShell>

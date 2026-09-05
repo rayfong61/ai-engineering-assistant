@@ -37,3 +37,17 @@ export async function apiDelete(path) {
   })
   await throwForStatus(res, `DELETE ${path} failed: ${res.status}`)
 }
+
+export async function apiUpload(path, file) {
+  const formData = new FormData()
+  formData.append('file', file)
+  // No Content-Type header here -- the browser sets multipart/form-data
+  // with the correct boundary itself; setting it manually breaks the parse.
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: 'POST',
+    headers: await authHeader(),
+    body: formData,
+  })
+  await throwForStatus(res, `POST ${path} failed: ${res.status}`)
+  return res.json()
+}
