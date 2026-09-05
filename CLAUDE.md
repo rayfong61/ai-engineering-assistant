@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project status
 
-Day 1 (spec2.md §37) is implemented and verified end-to-end: Docker scaffold, Supabase Auth (Google + Email/Password), Project CRUD, membership-only authorization. Day 2 is also implemented and verified end-to-end against a real T3 engineering PDF (PDF upload → Supabase Storage → PyMuPDF text extraction → fixed-size chunking → Voyage embedding → pgvector → Claude-generated answer with page citations); see "Day 2 implementation notes" below for details not in the spec. Day 3 (Claude Vision, Agent tool-selection loop, MCP server) is implemented and verified end-to-end against the same real T3 project — see "Day 3 implementation notes" below. `spec2.md` is the full specification and remains the source of truth; this file summarizes the parts most likely to be violated by default AI behavior, plus real implementation details that emerged during Days 1–3 and aren't in the spec (see "Implementation notes beyond the spec" below). Days 4–5 are not yet built — follow §36/§37 build order for those.
+Day 1 (spec2.md §37) is implemented and verified end-to-end: Docker scaffold, Supabase Auth (Google + Email/Password), Project CRUD, membership-only authorization. Day 2 is also implemented and verified end-to-end against a real T3 engineering PDF (PDF upload → Supabase Storage → PyMuPDF text extraction → fixed-size chunking → Voyage embedding → pgvector → Claude-generated answer with page citations); see "Day 2 implementation notes" below for details not in the spec. Day 3 (Claude Vision, Agent tool-selection loop, MCP server) is implemented and verified end-to-end against the same real T3 project — see "Day 3 implementation notes" below. Day 4 (Email Draft generation, Preview, Confirm & Send, Mock Email) is implemented and verified end-to-end with a real browser session — see "Day 4 implementation notes" below; Gmail OAuth (the real-send half of Day 4/§26) is intentionally not built yet, `EMAIL_MODE=mock` is the only working mode. `spec2.md` is the full specification and remains the source of truth; this file summarizes the parts most likely to be violated by default AI behavior, plus real implementation details that emerged during Days 1–4 and aren't in the spec (see "Implementation notes beyond the spec" below). Day 5 (buffer, Gmail OAuth if time allows, polish, RAG evaluation) is not yet built — follow §36/§37 build order for that.
 
 `spec.md` is a superseded earlier draft (local-Docker-only, no auth, no multi-tenancy, ChromaDB) kept for history — do not follow it. `spec2.md` replaces it with a Supabase-backed, multi-tenant architecture.
 
@@ -78,24 +78,28 @@ frontend/            React + Vite + Tailwind
     App.jsx, main.jsx, index.css
     pages/           Login.jsx (Google + Email/Password), Projects.jsx, ProjectDetail.jsx
     components/      Button/Input/Alert/Card/Badge/EmptyState/Tabs/Header/PageShell/Spinner,
-                      DocumentsPanel.jsx, ChatPanel.jsx (Day 2), VisionPanel.jsx, AgentPanel.jsx (Day 3)
+                      DocumentsPanel.jsx, ChatPanel.jsx (Day 2), VisionPanel.jsx, AgentPanel.jsx (Day 3),
+                      EmailPreviewCard.jsx (Day 4, rendered inline inside AgentPanel -- no Email tab)
     hooks/           useSession.js
     lib/             supabaseClient.js, api.js
 backend/app/
   main.py
-  api/               auth.py, projects.py, documents.py, chat.py, vision.py, agent.py   (email lands Day 4)
+  api/               auth.py, projects.py, documents.py, chat.py, vision.py, agent.py, email.py (Day 4)
   core/              config.py, database.py (SQLAlchemy engine/session),
                       auth.py (JWKS verification), authorization.py,
                       supabase_client.py (Storage/Auth-admin only)
   models/            SQLAlchemy ORM: project.py, document.py, conversation.py, email_log.py, vision.py (Day 3)
   schemas/           project.py, document.py (Pydantic; Document/Chat/Conversation/Message),
-                      vision.py, agent.py (Day 3)
+                      vision.py, agent.py (Day 3), email.py (Day 4)
   services/          pdf_service.py (extract/chunk), embedding_service.py (Voyage),
-                      claude_service.py (RAG + Vision + summary generation),
-                      rag_service.py (ingest/retrieve orchestration), vision_service.py (Day 3)
+                      claude_service.py (RAG + Vision + summary + email draft generation),
+                      rag_service.py (ingest/retrieve orchestration), vision_service.py (Day 3),
+                      email_service.py (Day 4 -- save_draft/generate_preview/confirm_and_send)
   agent/             agent_service.py (Day 3 -- process_request/select_tools/execute_workflow,
-                     hand-rolled Claude tool-use loop, no framework)
-  mcp/               server.py, client.py, tools/{search_documents,send_email}.py (Day 3 --
+                     hand-rolled Claude tool-use loop, no framework; Day 4 added the draft_email
+                     branch, see "Day 4 implementation notes")
+  mcp/               server.py, client.py, tools/{search_documents,send_email}.py (Day 3 scaffold,
+                     send_email.py's real mock-mode logic landed Day 4 --
                      ships into backend/Dockerfile.mcp, a second image from the same build context)
   alembic/           env.py, versions/0001_initial_schema.py .. 0003_vision_analyses.py
   alembic.ini
@@ -130,8 +134,8 @@ GET  /api/conversations/{conversation_id}
 POST /api/projects/{project_id}/vision
 GET  /api/projects/{project_id}/vision       -- Day 3 addition beyond spec2.md §27, for VisionPanel history
 POST /api/projects/{project_id}/agent
-POST /api/projects/{project_id}/email/preview
-POST /api/projects/{project_id}/email/send   -- must go through the MCP tool, never bypass MCP
+POST /api/projects/{project_id}/email/preview  -- Day 4
+POST /api/projects/{project_id}/email/send     -- Day 4, must go through the MCP tool, never bypass MCP
 GET  /api/health
 ```
 
@@ -185,6 +189,24 @@ Verified end-to-end against the same real ingested T3 project from Day 2 (all 4 
 
 8. **`SessionLocal(autoflush=False)` project-wide** (see `app/core/database.py`) means a just-`db.add()`-ed row isn't visible to a subsequent query in the same session without an explicit `db.flush()` — hit `agent_service.process_request` once (the freshly-added user `Message` wasn't visible when building the conversation history for the first Claude call, raising `anthropic.BadRequestError: messages: at least one message is required`). Fixed with an explicit `db.flush()` right after adding it. Worth remembering for any future code that adds-then-immediately-queries within one request.
 
+## Day 4 implementation notes
+
+Verified end-to-end with a real headless-browser session (Playwright, driven manually — not just `pytest`): logged in, opened a fresh project, asked the Agent in natural language to email someone, got back a real Claude-composed draft rendered as an inline Email Preview card, clicked Confirm & Send, and confirmed the `email_logs` row reached `status="sent"` with `mcp-server`'s log showing `[MOCK EMAIL] to=... subject=...`. Automated coverage: `tests/test_email.py` (new), plus updated `tests/test_agent.py`/`tests/test_mcp_tools.py` — 52/52 passing.
+
+1. **The Agent's Day 3 `send_email` tool is renamed to `draft_email`.** It never sent anything even in Day 3 (see Day 3 note 7) — keeping the name `send_email` for a tool that only ever drafts was judged actively misleading (a tool-call log entry reading "Agent called send_email" looks like a violation of spec2.md §24 even though it isn't). `draft_email` now actually does something: `agent_service.execute_workflow`'s branch persists an `EmailLog(status="draft")` via `app/services/email_service.save_draft` — still **never touches `mcp_client`**, so `tests/test_agent.py`'s human-in-the-loop guarantee test (renamed `test_agent_draft_email_persists_draft_but_never_calls_mcp`) still pins the same boundary Day 3 established, just with a real assertion instead of a stub check.
+
+2. **`mcp-server` has no hot-reload — a source edit there needs `docker compose restart mcp-server`.** Unlike `backend` (runs `uvicorn --reload`, confirmed by its startup log: "Started reloader process ... using WatchFiles"), `Dockerfile.mcp`'s `CMD ["python", "-m", "app.mcp.server"]` has no reload wrapper, even though the same `./backend/app:/app/app` volume is mounted. Editing `app/mcp/tools/send_email.py` and testing against the already-running container silently exercised the *old* Day-3 stub — the browser-driven verification run first "confirmed" a real bug (an `email_logs` row stuck at `status="failed"`) that was actually just a stale container. Always restart `mcp-server` after touching anything under `app/mcp/`.
+
+3. **Python's root logger defaults to `WARNING`, so a bare `logger.info(...)` is silently dropped unless something configures the level.** `send_email.py`'s mock-send confirmation log used `logger.info` and never appeared anywhere, even after the `mcp-server` restart from note 2 — nothing in this codebase calls `logging.basicConfig` or configures level for app loggers (`main.py`'s `logger.exception(...)` "worked" only because `.exception()` logs at ERROR, always above the default threshold). Fixed with `logging.basicConfig(level=logging.INFO)` in `app/mcp/server.py`'s `if __name__ == "__main__":` block, scoped to the `mcp-server` process since that's the only place a new INFO-level log was added. If `backend` ever needs INFO-level app logging, it will need the same treatment — don't assume `logger.info` calls anywhere in this codebase are actually visible without checking.
+
+4. **A real frontend bug, caught only by the manual browser run, not by `pytest`:** `EmailPreviewCard.jsx`'s send handler originally called `setStatus('sent')` unconditionally whenever `apiPost` didn't throw — but `POST /email/send` can return HTTP 200 with `{"status": "failed", ...}` as a legitimate business outcome (e.g. a non-mock `EMAIL_MODE`), not just via an HTTP error. The card was showing "已寄出" for a send that had actually failed. Fixed to read the response body's own `status` field. This is exactly the class of bug the "start the dev server and use the feature in a browser" rule exists to catch — the backend test suite was fully green the whole time this bug existed, because no backend test exercises the frontend's interpretation of a 200 response.
+
+5. **`draft_email`'s content and `/email/preview`'s content converge on one function, `email_service.save_draft`.** The Agent tool path has Claude compose `to`/`subject`/`body` directly as tool-call arguments (one Claude call, already in the tool-use loop); `POST /email/preview` is a standalone entrypoint (spec2.md §27) that does a dedicated `claude_service.generate_email_draft` call first, optionally seeded with an existing conversation's message history. Both then call the same `save_draft` to persist a `status="draft"` row — no duplicated persistence logic between the two trigger paths.
+
+6. **No new "Email" tab.** spec2.md §28's own Project Page mockup lists only `Documents │ Chat │ Vision │ Activity` — Email Preview is drawn as a card, not a tab, and §24's flow diagram starts at "User → Agent". The Preview (§25's exact To/Subject/Body/Cancel/Confirm & Send layout) renders inline inside `AgentPanel.jsx` whenever a tool call's `tool === 'draft_email'` is found. Cancel is client-side only (no `cancelled` status is ever written) — the `draft` row is harmless history, and there's no cancel/delete endpoint in spec2.md §27's Email section to call anyway.
+
+7. **Scope stops at Mock Email.** `app/mcp/tools/send_email.py` now branches on `EMAIL_MODE`: `"mock"` logs and returns `status: "sent"`; anything else returns `status: "failed"` with an explanatory message, rather than pretending to send. Real Gmail OAuth (spec2.md §26) is a deliberately separate, not-yet-started follow-up — see "Email execution path" below, now updated to match.
+
 ## LLM / embedding providers
 
 Unlike the earlier draft, `spec2.md` does **not** ask for a swappable multi-provider abstraction: Claude API is the fixed LLM/Vision provider, Voyage AI is the fixed embedding provider (§5–6, §41). Still isolate them behind `claude_service.py` / `embedding_service.py` so provider-specific details don't leak into `rag_service.py` or `agent_service.py` — but don't build a `LLM_PROVIDER=gemini|anthropic` switch; that abstraction was dropped in this spec version.
@@ -202,9 +224,9 @@ Supabase Auth (Google login, app identity)         ──unrelated to──►  
                                                         MCP send_email() → Gmail API
 ```
 
-Build the mock-mode path (`EMAIL_MODE=mock`, logs `[MOCK EMAIL]` instead of sending) before wiring real Gmail OAuth. `email_send` always goes through the MCP tool — never call Gmail API directly from an API route.
+The mock-mode path (`EMAIL_MODE=mock`, `app/mcp/tools/send_email.py` logs `[MOCK EMAIL] to=... subject=...` — never the body, per the no-full-email-content logging rule below — and returns `status: "sent"`) is built and verified as of Day 4; see "Day 4 implementation notes" above. `email_send` always goes through the MCP tool — never call Gmail API directly from an API route; `email_service.confirm_and_send` (`app/services/email_service.py`) is the only caller of `mcp_client.call_tool("send_email", ...)`, itself only reachable from `POST /email/send`, itself only reachable from a user's explicit "Confirm & Send" click.
 
-The MCP `send_email` tool itself already exists as of Day 3 (`app/mcp/tools/send_email.py`) and is even listed among the Agent's selectable tools — but only as a stub returning a canned "not yet available" response, and `agent_service.execute_workflow` never actually calls it through MCP (see "Day 3 implementation notes" item 7). Day 4's job is wiring a real draft/preview/confirm flow and `email_logs` writes on top of that existing stub, not creating the tool from scratch.
+**Real Gmail OAuth is not yet built.** A non-mock `EMAIL_MODE` currently makes `send_email.py` return `status: "failed"` cleanly rather than attempting anything — no Gmail client/service file exists anywhere in the codebase yet, and `GMAIL_CLIENT_ID`/`GMAIL_CLIENT_SECRET`/`GMAIL_REDIRECT_URI` are declared in `config.py` but unused. Per spec2.md §37's own risk-reduction note, this is an acceptable place to stop for the MVP demo (mock email is a legitimate fallback) — pick up real Gmail OAuth as a separate follow-up, choosing one of the two approaches in §26 explicitly before implementing (don't assume which one without deciding first).
 
 ## Security minimums (spec2.md §32)
 
@@ -219,6 +241,7 @@ docker compose up -d                                     # frontend, backend, mc
 docker compose run --rm backend alembic upgrade head    # first run, or whenever a migration is added
 docker compose logs -f
 docker compose logs -f mcp-server                        # MCP server's own log stream (Day 3)
+docker compose restart mcp-server                        # required after any edit under backend/app/mcp/ -- no hot-reload (Day 4 note 2)
 docker compose down                                      # frontend/backend/mcp-server only; Supabase data untouched either way
 npx supabase stop                                        # stop local Supabase fallback stack (keeps data)
 ```
