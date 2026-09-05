@@ -78,7 +78,9 @@ def select_tools(messages: list[dict]):
     """One Claude turn against AGENT_TOOLS; caller inspects stop_reason."""
     return claude_service._client().messages.create(
         model=CLAUDE_MODEL,
-        max_tokens=1024,
+        # 1024 was too tight for a detailed multi-section Chinese answer
+        # with citations -- got observed cutting off mid-sentence.
+        max_tokens=4096,
         system=AGENT_SYSTEM_PROMPT,
         tools=AGENT_TOOLS,
         messages=messages,

@@ -34,6 +34,15 @@ def _client() -> anthropic.Anthropic:
     return anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
 
+def _extract_text(message: anthropic.types.Message) -> str:
+    # message.content[0] is not always a text block -- Claude can lead with
+    # a ThinkingBlock (no .text attribute), which raised a bare
+    # AttributeError and surfaced as an intermittent 500 whenever it
+    # happened. Filter for the actual text block instead of assuming it's
+    # first, matching the pattern analyze_image already used.
+    return next(block.text for block in message.content if block.type == "text")
+
+
 def generate_answer(question: str, context_chunks: list[dict]) -> str:
     if not context_chunks:
         return NO_CONTEXT_ANSWER
@@ -43,7 +52,9 @@ def generate_answer(question: str, context_chunks: list[dict]) -> str:
     )
     message = _client().messages.create(
         model=CLAUDE_MODEL,
-        max_tokens=1024,
+        # 1024 was too tight for a detailed multi-section Chinese answer
+        # with citations -- got observed cutting off mid-sentence.
+        max_tokens=4096,
         system=SYSTEM_PROMPT,
         messages=[
             {
@@ -52,7 +63,7 @@ def generate_answer(question: str, context_chunks: list[dict]) -> str:
             }
         ],
     )
-    return message.content[0].text
+    return _extract_text(message)
 
 
 # spec2.md section 18. Wording is verbatim from the spec -- Claude is
@@ -89,7 +100,7 @@ def analyze_image(image_bytes: bytes, media_type: str) -> dict:
     image_b64 = base64.standard_b64encode(image_bytes).decode("utf-8")
     message = _client().messages.create(
         model=CLAUDE_MODEL,
-        max_tokens=1024,
+        max_tokens=2048,
         system=VISION_SYSTEM_PROMPT,
         output_config={"format": {"type": "json_schema", "schema": VISION_OUTPUT_SCHEMA}},
         messages=[
@@ -108,8 +119,7 @@ def analyze_image(image_bytes: bytes, media_type: str) -> dict:
             }
         ],
     )
-    text = next(block.text for block in message.content if block.type == "text")
-    return json.loads(text)
+    return json.loads(_extract_text(message))
 
 
 SUMMARY_SYSTEM_PROMPT = """你是一個工程會議摘要助理。
@@ -144,8 +154,11 @@ def generate_summary(context_chunks: list[dict], vision_analyses: list[dict]) ->
 
     message = _client().messages.create(
         model=CLAUDE_MODEL,
-        max_tokens=1024,
+        # A meeting summary synthesizing multiple document chunks + vision
+        # analyses genuinely needs headroom -- this is the exact call that
+        # was observed truncating mid-sentence at 1024.
+        max_tokens=4096,
         system=SUMMARY_SYSTEM_PROMPT,
         messages=[{"role": "user", "content": "\n\n".join(sections) + "\n\n請整理成會議摘要。"}],
     )
-    return message.content[0].text
+    return _extract_text(message)
