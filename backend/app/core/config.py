@@ -36,3 +36,8 @@ GMAIL_CLIENT_SECRET = os.getenv("GMAIL_CLIENT_SECRET", "")
 GMAIL_REDIRECT_URI = os.getenv("GMAIL_REDIRECT_URI", "")
 
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
+
+# The mcp-server container, reached over the internal Docker Compose network
+# -- never given a published port the frontend/browser can reach (spec2.md
+# section 21/30). The backend's Agent is its only client.
+MCP_SERVER_URL = os.getenv("MCP_SERVER_URL", "http://mcp-server:8001/mcp")

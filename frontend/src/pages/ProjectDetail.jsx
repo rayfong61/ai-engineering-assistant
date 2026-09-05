@@ -1,19 +1,22 @@
-import { Activity, ArrowLeft, FileText, Image, LogOut, MessageSquare } from 'lucide-react'
+import { Activity, ArrowLeft, Bot, FileText, Image, LogOut, MessageSquare } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
+import AgentPanel from '../components/AgentPanel'
 import Button from '../components/Button'
 import ChatPanel from '../components/ChatPanel'
 import DocumentsPanel from '../components/DocumentsPanel'
 import PageShell from '../components/PageShell'
 import Spinner from '../components/Spinner'
 import Tabs from '../components/Tabs'
+import VisionPanel from '../components/VisionPanel'
 import { apiGet } from '../lib/api'
 import { supabase } from '../lib/supabaseClient'
 
 const TABS = [
   { key: 'documents', label: 'Documents', icon: FileText },
   { key: 'chat', label: 'Chat', icon: MessageSquare },
-  { key: 'vision', label: 'Vision', icon: Image, placeholder: '工程圖片分析將在 Day 3 加入。' },
+  { key: 'vision', label: 'Vision', icon: Image },
+  { key: 'agent', label: 'Agent', icon: Bot },
   { key: 'activity', label: 'Activity', icon: Activity, placeholder: 'Activity Log 將在 Day 5 加入。' },
 ]
 
@@ -67,7 +70,13 @@ export default function ProjectDetail() {
           <div hidden={tab !== 'chat'}>
             <ChatPanel projectId={id} />
           </div>
-          {(tab === 'vision' || tab === 'activity') && (
+          <div hidden={tab !== 'vision'}>
+            <VisionPanel projectId={id} />
+          </div>
+          <div hidden={tab !== 'agent'}>
+            <AgentPanel projectId={id} />
+          </div>
+          {tab === 'activity' && (
             <p className="text-slate-500">{TABS.find((t) => t.key === tab)?.placeholder}</p>
           )}
         </>

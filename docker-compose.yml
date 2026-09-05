@@ -26,11 +26,31 @@ services:
       - ./backend/alembic:/app/alembic
       - ./backend/alembic.ini:/app/alembic.ini
       - ./data:/app/data
+    # No depends_on: mcp-server -- the Agent should catch a connection
+    # failure and return a clean 502 rather than couple backend startup to
+    # mcp-server's readiness (Documents/Chat/Vision don't need it at all).
+
+  # Separate container per spec2.md section 30's docker-compose diagram
+  # (frontend/backend/mcp-server). Streamable-HTTP on the internal compose
+  # network only -- the host port below is for local debugging, never relied
+  # on by the backend (which reaches it at mcp-server:8001 via
+  # MCP_SERVER_URL) and never exposed to the frontend/browser (spec2.md
+  # section 21: "MCP 不可繞過 Project Authorization" -- enforced structurally
+  # by having no path from the browser to this container at all).
+  mcp-server:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.mcp
+    ports:
+      - "8001:8001"
+    env_file:
+      - .env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./backend/app:/app/app
 
 # Database/Auth/Storage all come from the local Supabase CLI stack
 # (`supabase start`, see supabase/config.toml) — not a standalone
 # container here, so local dev matches the real Supabase project 1:1.
 # Reach it from these containers via host.docker.internal.
-#
-# mcp-server is added in Day 3 (spec2.md section 21, section 37) once
-# search_documents / send_email tools exist to wrap.

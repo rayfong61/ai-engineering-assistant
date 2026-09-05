@@ -11,5 +11,6 @@ python-multipart
 pymupdf
 voyageai
 anthropic
+mcp
 pytest
 httpx

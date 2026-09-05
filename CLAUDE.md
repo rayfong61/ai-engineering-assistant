@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project status
 
-Day 1 (spec2.md §37) is implemented and verified end-to-end: Docker scaffold, Supabase Auth (Google + Email/Password), Project CRUD, membership-only authorization. Day 2 is also implemented and verified end-to-end against a real T3 engineering PDF (PDF upload → Supabase Storage → PyMuPDF text extraction → fixed-size chunking → Voyage embedding → pgvector → Claude-generated answer with page citations); see "Day 2 implementation notes" below for details not in the spec. `spec2.md` is the full specification and remains the source of truth; this file summarizes the parts most likely to be violated by default AI behavior, plus real implementation details that emerged during Days 1–2 and aren't in the spec (see "Implementation notes beyond the spec" below). Days 3–5 are not yet built — follow §36/§37 build order for those.
+Day 1 (spec2.md §37) is implemented and verified end-to-end: Docker scaffold, Supabase Auth (Google + Email/Password), Project CRUD, membership-only authorization. Day 2 is also implemented and verified end-to-end against a real T3 engineering PDF (PDF upload → Supabase Storage → PyMuPDF text extraction → fixed-size chunking → Voyage embedding → pgvector → Claude-generated answer with page citations); see "Day 2 implementation notes" below for details not in the spec. Day 3 (Claude Vision, Agent tool-selection loop, MCP server) is implemented and verified end-to-end against the same real T3 project — see "Day 3 implementation notes" below. `spec2.md` is the full specification and remains the source of truth; this file summarizes the parts most likely to be violated by default AI behavior, plus real implementation details that emerged during Days 1–3 and aren't in the spec (see "Implementation notes beyond the spec" below). Days 4–5 are not yet built — follow §36/§37 build order for those.
 
 `spec.md` is a superseded earlier draft (local-Docker-only, no auth, no multi-tenancy, ChromaDB) kept for history — do not follow it. `spec2.md` replaces it with a Supabase-backed, multi-tenant architecture.
 
@@ -68,7 +68,7 @@ Browser → React+Tailwind → FastAPI Backend (JWT-authenticated)
 Agent → MCP Server → Gmail API
 ```
 
-Local Docker runs `frontend`, `backend` (`mcp-server` joins in Day 3, §30) — no local Postgres container of our own, no ChromaDB, no local LLM. "Supabase Cloud" in the diagram above is, during development, actually the **local Supabase CLI stack** (`supabase start` — see "Implementation notes beyond the spec" below), not supabase.com; swapping to the real cloud project later is purely an env-var change. `docker compose down` losing state is a non-issue either way because nothing persistent lives in the `frontend`/`backend` containers themselves.
+Local Docker runs `frontend`, `backend`, `mcp-server` (the last one added Day 3, §30/§33 — a second image built from `backend/Dockerfile.mcp` off the same `backend/` build context, so it shares `requirements.txt` and imports `app.services`/`app.models` directly rather than duplicating code into a separate top-level package; Streamable HTTP on the internal compose network only, at `mcp-server:8001`, never a published port the frontend/browser can reach — spec2.md §21's "MCP 不可繞過 Project Authorization" is enforced structurally this way, since the MCP server itself has no JWT/user context to check membership against and is simply unreachable from anywhere except the already-authorized backend). No local Postgres container of our own, no ChromaDB, no local LLM. "Supabase Cloud" in the diagram above was, early in development, actually the **local Supabase CLI stack** (`supabase start`); as of the Day 3 session, `.env` points at the real cloud project (`SUPABASE_URL`/`DATABASE_URL` both target `*.supabase.co`, the latter via the Session Pooler per implementation note 5 below) — the local CLI stack still works as a fallback (`npx supabase start`) but is no longer what a fresh `docker compose up` talks to by default; check `.env` before assuming which one is live. `docker compose down` losing state is a non-issue either way because nothing persistent lives in the `frontend`/`backend`/`mcp-server` containers themselves.
 
 Actual structure (spec2.md §33, as built):
 
@@ -78,31 +78,41 @@ frontend/            React + Vite + Tailwind
     App.jsx, main.jsx, index.css
     pages/           Login.jsx (Google + Email/Password), Projects.jsx, ProjectDetail.jsx
     components/      Button/Input/Alert/Card/Badge/EmptyState/Tabs/Header/PageShell/Spinner,
-                      DocumentsPanel.jsx, ChatPanel.jsx (Day 2)
+                      DocumentsPanel.jsx, ChatPanel.jsx (Day 2), VisionPanel.jsx, AgentPanel.jsx (Day 3)
     hooks/           useSession.js
     lib/             supabaseClient.js, api.js
 backend/app/
   main.py
-  api/               auth.py, projects.py, documents.py, chat.py   (vision/agent/email land Day 3-4)
+  api/               auth.py, projects.py, documents.py, chat.py, vision.py, agent.py   (email lands Day 4)
   core/              config.py, database.py (SQLAlchemy engine/session),
                       auth.py (JWKS verification), authorization.py,
                       supabase_client.py (Storage/Auth-admin only)
-  models/            SQLAlchemy ORM: project.py, document.py, conversation.py, email_log.py
-  schemas/           project.py, document.py (Pydantic)
+  models/            SQLAlchemy ORM: project.py, document.py, conversation.py, email_log.py, vision.py (Day 3)
+  schemas/           project.py, document.py (Pydantic; Document/Chat/Conversation/Message),
+                      vision.py, agent.py (Day 3)
   services/          pdf_service.py (extract/chunk), embedding_service.py (Voyage),
-                      claude_service.py (RAG generation), rag_service.py (ingest/retrieve orchestration)
-  alembic/           env.py, versions/0001_initial_schema.py
+                      claude_service.py (RAG + Vision + summary generation),
+                      rag_service.py (ingest/retrieve orchestration), vision_service.py (Day 3)
+  agent/             agent_service.py (Day 3 -- process_request/select_tools/execute_workflow,
+                     hand-rolled Claude tool-use loop, no framework)
+  mcp/               server.py, client.py, tools/{search_documents,send_email}.py (Day 3 --
+                     ships into backend/Dockerfile.mcp, a second image from the same build context)
+  alembic/           env.py, versions/0001_initial_schema.py .. 0003_vision_analyses.py
   alembic.ini
 data/temp/
 data/samples/        gitignored -- sample T3 PDFs used for local extraction/RAG testing, not committed
 supabase/            config.toml (local CLI stack config, spec2.md doesn't mention this —
                      it's a Day-1 addition, see below)
-docker-compose.yml   services: frontend, backend (postgres/auth/storage come from `supabase start`, not here)
+docker-compose.yml   services: frontend, backend, mcp-server (postgres/auth/storage come from
+                     Supabase -- local CLI stack or cloud project depending on .env, not a
+                     container here)
 ```
 
 ## Data model (spec2.md §9)
 
 Core tables: `projects`, `project_members` (role: owner/member), `documents` (status: uploaded/processing/ready/failed), `document_chunks` (page, chunk_index, embedding VECTOR(N)), `conversations`, `messages` (role: user/assistant/system/tool), `email_logs` (status: draft/confirmed/sent/failed/cancelled). Storage path convention: `projects/{project_id}/documents/{document_id}/{filename}` and `projects/{project_id}/images/{image_id}/{filename}` (§10).
+
+`vision_analyses` (Day 3 addition, not in spec2.md §9 -- the spec never defines a table for Vision results, only the §17 response shape `{analysis, observations, limitations}`): `id`, `project_id`, `uploaded_by`, `filename`, `storage_path`, `file_size`, `analysis` (text), `observations`/`limitations` (JSONB arrays), `created_at`. Named for the analysis row, not the raw image (which lives only in Storage) -- same split as `documents` vs `document_chunks`.
 
 ## Key API endpoints (spec2.md §27)
 
@@ -118,6 +128,7 @@ POST /api/projects/{project_id}/chat
 GET  /api/projects/{project_id}/conversations
 GET  /api/conversations/{conversation_id}
 POST /api/projects/{project_id}/vision
+GET  /api/projects/{project_id}/vision       -- Day 3 addition beyond spec2.md §27, for VisionPanel history
 POST /api/projects/{project_id}/agent
 POST /api/projects/{project_id}/email/preview
 POST /api/projects/{project_id}/email/send   -- must go through the MCP tool, never bypass MCP
@@ -134,7 +145,7 @@ These are Day 1 decisions/discoveries that aren't in `spec2.md` but should be tr
 
 2. **User session tokens are verified via JWKS, not a shared HS256 secret.** Current Supabase (both the local CLI stack and, most likely, any newly-created cloud project) signs user JWTs with an asymmetric key (ES256), published at `<SUPABASE_URL>/auth/v1/.well-known/jwks.json`. `app/core/auth.py` uses `jwt.PyJWKClient` against that endpoint — there is no `SUPABASE_JWT_SECRET` env var. If a real cloud project ever turns out to still issue legacy HS256 tokens, this would need a fallback path, but don't add one speculatively — confirm first (decode a real token's header and check `alg`).
 
-3. **Local development runs against the Supabase CLI (`supabase start`), not supabase.com**, because Supabase had a platform-side outage affecting project creation during Day 1. The CLI spins up a full local stack (Postgres, GoTrue Auth, Storage, Kong gateway, Studio, Inbucket for catching dev emails) — see `supabase/config.toml`. `docker-compose.yml` no longer runs its own `postgres` service; the `backend`/`frontend` containers reach the CLI stack via `host.docker.internal`. Moving to the real cloud project later is: create it, disable its Data API, copy its URL/keys into `.env`, re-run `alembic upgrade head` against it — no code changes.
+3. **Local development runs against the Supabase CLI (`supabase start`), not supabase.com**, because Supabase had a platform-side outage affecting project creation during Day 1. The CLI spins up a full local stack (Postgres, GoTrue Auth, Storage, Kong gateway, Studio, Inbucket for catching dev emails) — see `supabase/config.toml`. `docker-compose.yml` no longer runs its own `postgres` service; the `backend`/`frontend` containers reach the CLI stack via `host.docker.internal`. Moving to the real cloud project later is: create it, disable its Data API, copy its URL/keys into `.env`, re-run `alembic upgrade head` against it — no code changes. **Update, Day 3:** this has since happened — `.env` now points at the real cloud project (matches implementation note 5's Session Pooler `DATABASE_URL`), so a fresh `docker compose up` talks to the cloud project by default, not the local CLI stack. `npx supabase start` still works as a fallback stack, but check `.env` before assuming which one is live.
 
 4. **Email/Password login exists alongside Google login, for local dev convenience only.** `spec2.md`'s demo flow (§2, §39) is Google-login-only — don't remove the Google button or make Email/Password the primary flow in any user-facing copy. It's there because wiring real Google OAuth requires external setup (Google Cloud Console + Supabase provider config) that shouldn't block testing the rest of the stack; `supabase/config.toml` has `enable_confirmations = false` under `[auth.email]` so signup doesn't need a confirmation-email round trip locally.
 
@@ -153,6 +164,26 @@ Verified against 4 real public T3 engineering PDFs (129 pages total; see `data/s
 4. **Background ingestion runs on its own DB session, not the request's.** `BackgroundTasks` (FastAPI) executes after the upload response is sent, by which point the request-scoped `Depends(get_db)` session is already closed — `_process_document_task` opens a fresh `SessionLocal()` instead. Tests that upload documents monkeypatch `rag_service.ingest_document` to a no-op (see `tests/test_documents.py`) so the suite doesn't make real Voyage API calls on every run; the real ingestion path is covered by manual end-to-end testing plus `tests/test_rag.py`'s pure-DB tests of `retrieve_chunks` (project isolation, cosine-distance ordering) using hand-inserted embedding vectors.
 
 5. **`CLAUDE_MODEL` defaults to `claude-sonnet-5`.**
+
+## Day 3 implementation notes
+
+Verified end-to-end against the same real ingested T3 project from Day 2 (all 4 PDFs, `project_id a736dc13-...`): a real construction-photo-style image through `POST /vision`, a real `search_documents`/`analyze_image`/`generate_summary` Agent run producing a genuine Meeting Summary with page-cited sources, a real cross-container MCP round trip (`backend` → `mcp-server:8001` → real pgvector results), and a real `send_email` request confirming zero `email_logs` rows and zero MCP calls for that tool. Not just unit tests — see `tests/test_vision.py`, `tests/test_agent.py`, `tests/test_mcp_tools.py` for the mocked/pure-DB automated coverage on top of that.
+
+1. **MCP SDK is `mcp` 2.x, where `FastMCP` was renamed to `MCPServer`.** Most existing tutorials/examples describe the pre-2.0 `from mcp.server.fastmcp import FastMCP` API; that import raises `ModuleNotFoundError` on this installed version. Use `from mcp.server.mcpserver import MCPServer` instead — `@mcp.tool()`, `mcp.run(transport=...)` work the same shape. Client side: the streamable-HTTP connector function is `mcp.client.streamable_http.streamable_http_client` (not `streamablehttp_client`, despite that being the v1 name), and it yields a 2-tuple `(read, write)`, not v1's 3-tuple with a session-id getter.
+
+2. **A tool whose return type annotation is a `list` gets auto-wrapped by the SDK as `{"result": [...]}`**, because MCP structured content must be a JSON object at the top level — a bare list return isn't valid structured content. `app/mcp/client.py`'s `call_tool()` unwraps this (`{"result": [...]}` → `[...]`) transparently so callers never see the envelope; a tool returning a `dict` (e.g. `send_email`) passes through unchanged. Confirmed empirically (`fn_metadata.output_schema` on the registered tool), not assumed from memory of an older SDK version.
+
+3. **Fixed a real, pre-existing JWT clock-skew bug while testing Day 3 against the cloud project**: `app/core/auth.py`'s `jwt.decode(...)` had no `leeway`, so a freshly-issued Supabase token could intermittently fail with `ImmatureSignatureError('The token is not yet valid (iat)')` if the backend container's clock was even a couple seconds behind the token's `iat`. This isn't Day-3-specific (it affects every authenticated route) but surfaced during Day 3's heavier request cadence — fixed with `leeway=30` on the `jwt.decode` call. Not a Day 3 scope creep to leave in place; a genuine correctness fix.
+
+4. **`vision_analyses` is a Day 3 schema addition beyond spec2.md §9** (see "Data model" above) — the spec's data model section predates Vision/Agent and never defines a table for analysis results. Chosen over "no persistence" or piggybacking on `messages.metadata` so the Agent's `analyze_image` tool (see note 6) has something durable to look up, and so `VisionPanel.jsx` can show history across page loads.
+
+5. **`mcp-server` ships as a second Docker image from the same `backend/` build context** (`backend/Dockerfile.mcp`), not a separate top-level package — see "Target architecture" above for why. `requirements.txt` is shared between the two images; adding `mcp` to it covers both.
+
+6. **The Agent's `analyze_image` tool looks up an already-persisted `vision_analyses` row rather than re-running Claude Vision mid-conversation.** The `POST /agent` request body is just `{conversation_id, message}` — no image bytes — so there's nothing to re-analyze even if it wanted to. The intended flow is: upload+analyze once via the Vision tab, then ask the Agent to fold that result into a summary (matches spec2.md §20's example flow exactly: `search_documents → analyze_image → generate_summary`). `image_id` is optional in the tool's input schema; omitted, it uses the project's most recently analyzed image.
+
+7. **`send_email` is registered as a real tool Claude can select** (so tool-selection logic is genuinely exercised, not stubbed out of the loop entirely), **but `agent_service.execute_workflow`'s branch for it never calls the MCP client** — it returns a canned "not yet available" dict locally. This is deliberate, not a shortcut: spec2.md §24 forbids the Agent from auto-sending, and Day 3's job is only to prove `search_documents`/`send_email` are wired through MCP at all, not to let the Agent actually invoke a send. The real `send_email` MCP tool is proven separately, directly, bypassing the Agent (`tests/test_mcp_tools.py`, and manually via `app/mcp/client.py`). `tests/test_agent.py::test_agent_never_calls_mcp_send_email` pins this boundary by making the MCP client raise if it's ever called for `send_email`.
+
+8. **`SessionLocal(autoflush=False)` project-wide** (see `app/core/database.py`) means a just-`db.add()`-ed row isn't visible to a subsequent query in the same session without an explicit `db.flush()` — hit `agent_service.process_request` once (the freshly-added user `Message` wasn't visible when building the conversation history for the first Claude call, raising `anthropic.BadRequestError: messages: at least one message is required`). Fixed with an explicit `db.flush()` right after adding it. Worth remembering for any future code that adds-then-immediately-queries within one request.
 
 ## LLM / embedding providers
 
@@ -173,6 +204,8 @@ Supabase Auth (Google login, app identity)         ──unrelated to──►  
 
 Build the mock-mode path (`EMAIL_MODE=mock`, logs `[MOCK EMAIL]` instead of sending) before wiring real Gmail OAuth. `email_send` always goes through the MCP tool — never call Gmail API directly from an API route.
 
+The MCP `send_email` tool itself already exists as of Day 3 (`app/mcp/tools/send_email.py`) and is even listed among the Agent's selectable tools — but only as a stub returning a canned "not yet available" response, and `agent_service.execute_workflow` never actually calls it through MCP (see "Day 3 implementation notes" item 7). Day 4's job is wiring a real draft/preview/confirm flow and `email_logs` writes on top of that existing stub, not creating the tool from scratch.
+
 ## Security minimums (spec2.md §32)
 
 Validate uploaded file types and filenames; enforce upload size limits (PDF 100MB, image 10MB — carried over from `spec.md`, not restated numerically in `spec2.md` but still the working assumption); validate email addresses; never expose API keys, OAuth secrets, or the Supabase service role key in error messages or logs. `SUPABASE_SERVICE_ROLE_KEY` must only ever exist in the backend, never sent to the frontend.
@@ -180,19 +213,21 @@ Validate uploaded file types and filenames; enforce upload size limits (PDF 100M
 ## Commands
 
 ```bash
-npx supabase start                                      # local Auth/Postgres/Storage stack (first run / after reboot)
+npx supabase start                                      # local Auth/Postgres/Storage fallback stack (only if .env points at it)
 docker compose build
-docker compose up -d
+docker compose up -d                                     # frontend, backend, mcp-server
 docker compose run --rm backend alembic upgrade head    # first run, or whenever a migration is added
 docker compose logs -f
-docker compose down                                      # frontend/backend only; local Supabase data untouched
-npx supabase stop                                        # stop local Supabase (keeps data)
+docker compose logs -f mcp-server                        # MCP server's own log stream (Day 3)
+docker compose down                                      # frontend/backend/mcp-server only; Supabase data untouched either way
+npx supabase stop                                        # stop local Supabase fallback stack (keeps data)
 ```
 
 - Frontend: http://localhost:5173
 - Backend Swagger: http://localhost:8000/docs
 - Health check: http://localhost:8000/api/health
-- Supabase Studio (local): http://localhost:54323
-- Inbucket (local dev email catcher): http://localhost:54324
+- MCP server (internal only in production; host-published for local debugging): http://localhost:8001/mcp
+- Supabase Studio (local stack only): http://localhost:54323
+- Inbucket (local stack dev email catcher): http://localhost:54324
 
-Backend tests (require the local Supabase Postgres reachable — `npx supabase start` first): `docker compose exec backend python -m pytest -v`. Tests override `get_current_user` with fake users (`tests/conftest.py`) — they exercise our authorization/CRUD logic, not Supabase's token issuance — and wrap each test in a rolled-back SAVEPOINT against the real Postgres schema (UUID/JSONB/pgvector types don't work cleanly against SQLite, so this isn't mocked out).
+Backend tests require whatever `DATABASE_URL` in `.env` currently points at to be reachable (cloud project or local CLI stack — see implementation note 3 above): `docker compose exec backend python -m pytest -v`. Tests override `get_current_user` with fake users (`tests/conftest.py`) — they exercise our authorization/CRUD logic, not Supabase's token issuance — and wrap each test in a rolled-back SAVEPOINT against the real Postgres schema (UUID/JSONB/pgvector types don't work cleanly against SQLite, so this isn't mocked out).

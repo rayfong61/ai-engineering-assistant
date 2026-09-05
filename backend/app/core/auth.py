@@ -33,6 +33,11 @@ def get_current_user(authorization: str | None = Header(default=None)) -> dict:
             signing_key.key,
             algorithms=["ES256", "RS256"],
             audience="authenticated",
+            # Tolerates small clock drift between this container and
+            # Supabase's auth server -- without it, a token's iat can land
+            # in the future from this container's perspective and get
+            # rejected as ImmatureSignatureError moments after being issued.
+            leeway=30,
         )
     except jwt.PyJWTError as exc:
         raise HTTPException(status_code=401, detail="Invalid or expired token") from exc
