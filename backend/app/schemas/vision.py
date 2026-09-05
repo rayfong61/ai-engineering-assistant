@@ -14,3 +14,4 @@ class VisionAnalysisOut(BaseModel):
     observations: list[str]
     limitations: list[str]
     created_at: datetime
+    image_url: str | None = None

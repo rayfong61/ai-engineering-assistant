@@ -87,6 +87,7 @@ def test_member_can_upload_and_list_vision_analysis(client, current_user_overrid
     assert body["analysis"] == "測試分析"
     assert body["observations"] == ["可觀察到測試內容"]
     assert body["limitations"] == ["僅憑圖片無法確認結構安全性，需人工確認"]
+    assert body["image_url"]  # real signed URL from real local/cloud Storage, not mocked
 
     record = db_session.query(VisionAnalysis).filter(VisionAnalysis.id == body["id"]).first()
     assert record is not None
@@ -95,6 +96,7 @@ def test_member_can_upload_and_list_vision_analysis(client, current_user_overrid
     listed = client.get(f"/api/projects/{project_id}/vision").json()
     assert len(listed) == 1
     assert listed[0]["id"] == body["id"]
+    assert listed[0]["image_url"]
 
 
 def uuid_of(value: str):

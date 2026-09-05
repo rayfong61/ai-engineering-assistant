@@ -11,7 +11,16 @@ export default function VisionPanel({ projectId }) {
   const [loading, setLoading] = useState(true)
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState(null)
+  const [brokenImages, setBrokenImages] = useState(() => new Set())
+  const [lightboxUrl, setLightboxUrl] = useState(null)
   const fileInputRef = useRef(null)
+
+  const markBroken = (id) =>
+    setBrokenImages((prev) => {
+      const next = new Set(prev)
+      next.add(id)
+      return next
+    })
 
   const load = () => {
     apiGet(`/api/projects/${projectId}/vision`)
@@ -83,8 +92,24 @@ export default function VisionPanel({ projectId }) {
         <ul className="space-y-3">
           {analyses.map((item) => (
             <li key={item.id} className="rounded-card border border-slate-200 bg-white p-4">
-              <div className="mb-2 flex items-center gap-2">
-                <ImageIcon className="h-4 w-4 flex-shrink-0 text-slate-400" />
+              <div className="mb-2 flex items-center gap-3">
+                {item.image_url && !brokenImages.has(item.id) ? (
+                  <button
+                    type="button"
+                    onClick={() => setLightboxUrl(item.image_url)}
+                    className="flex-shrink-0"
+                    aria-label="放大檢視圖片"
+                  >
+                    <img
+                      src={item.image_url}
+                      alt={item.filename}
+                      className="h-16 w-16 rounded-card border border-slate-200 object-cover"
+                      onError={() => markBroken(item.id)}
+                    />
+                  </button>
+                ) : (
+                  <ImageIcon className="h-16 w-16 flex-shrink-0 rounded-card border border-slate-200 bg-slate-50 p-4 text-slate-400" />
+                )}
                 <span className="truncate text-sm font-medium text-slate-900">{item.filename}</span>
               </div>
               <p className="mb-3 text-sm text-slate-700">{item.analysis}</p>
@@ -113,6 +138,15 @@ export default function VisionPanel({ projectId }) {
             </li>
           ))}
         </ul>
+      )}
+
+      {lightboxUrl && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/80 p-4"
+          onClick={() => setLightboxUrl(null)}
+        >
+          <img src={lightboxUrl} alt="放大檢視" className="max-h-full max-w-full rounded-card" />
+        </div>
       )}
     </div>
   )
