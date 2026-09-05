@@ -10,7 +10,7 @@ from app.mcp import client as mcp_client
 from app.models import Conversation, Message, VisionAnalysis
 from app.schemas.agent import AgentResponse, AgentToolCallOut
 from app.schemas.document import SourceOut
-from app.services import claude_service, embedding_service, rag_service
+from app.services import claude_service, email_service, embedding_service, rag_service
 
 MAX_ITERATIONS = 6
 
@@ -41,8 +41,11 @@ AGENT_TOOLS = [
         "input_schema": {"type": "object", "properties": {}, "required": [], "additionalProperties": False},
     },
     {
-        "name": "send_email",
-        "description": "（Day 4 才開放）目前僅回傳尚未開放的提示，不會真的寄信。",
+        "name": "draft_email",
+        "description": (
+            "產生一封 email 草稿（收件人/主旨/內容），寫入 email_logs 為 draft 狀態。"
+            "不會真的寄出信件——使用者需在 Email Preview 中按 Confirm & Send 才會真正寄送。"
+        ),
         "input_schema": {
             "type": "object",
             "properties": {
@@ -58,10 +61,10 @@ AGENT_TOOLS = [
 
 AGENT_SYSTEM_PROMPT = """你是一個工程專案助理 Agent。可使用的工具：
 search_documents（搜尋工程文件）、analyze_image（取得圖片分析）、
-generate_summary（整理會議摘要）、send_email（目前尚未開放，僅示範用）。
+generate_summary（整理會議摘要）、draft_email（產生 email 草稿，不會真的寄信）。
 
-禁止在使用者尚未明確確認前呼叫 send_email 寄出郵件——本階段呼叫此工具
-只會得到一個「尚未開放」的提示，不會真的寄信。
+呼叫 draft_email 只會產生草稿並存成 draft 狀態，讓使用者在 Email Preview 中確認——
+你自己永遠不能真的寄出郵件，寄送必須由使用者明確點擊 Confirm & Send 才會發生。
 
 取得足夠的文件/圖片資訊後，呼叫 generate_summary 產生最終回答。
 """
@@ -105,7 +108,9 @@ def _lookup_vision_analysis(db: Session, project_id: str, image_id: str | None) 
     }
 
 
-def execute_workflow(db: Session, project_id: str, tool_use_blocks: list, state: AgentLoopState) -> list[dict]:
+def execute_workflow(
+    db: Session, project_id: str, user: dict, tool_use_blocks: list, state: AgentLoopState
+) -> list[dict]:
     """Dispatches each tool_use block and returns tool_result content blocks
     for the next Claude turn."""
     tool_results = []
@@ -125,14 +130,26 @@ def execute_workflow(db: Session, project_id: str, tool_use_blocks: list, state:
                 state.vision_analyses.append(output)
         elif name == "generate_summary":
             output = claude_service.generate_summary(state.context_chunks, state.vision_analyses)
-        elif name == "send_email":
-            # Never reaches the MCP client -- spec2.md section 24 forbids
-            # the Agent from auto-sending. The real send_email MCP tool is
-            # proven separately (see tests/test_mcp_tools.py); this branch
-            # intentionally short-circuits before any MCP call.
+        elif name == "draft_email":
+            # Only ever persists a draft row -- never reaches the MCP
+            # client. spec2.md section 24 forbids the Agent from
+            # auto-sending; the real send only happens via
+            # email_service.confirm_and_send, triggered by an explicit
+            # user "Confirm & Send" click (POST /email/send).
+            email_log = email_service.save_draft(
+                db,
+                project_id,
+                uuid.UUID(user["id"]),
+                tool_input["to"],
+                tool_input["subject"],
+                tool_input["body"],
+            )
             output = {
-                "status": "not_implemented",
-                "message": "Email 寄送功能將於 Day 4 隨 Email Preview / Confirm 流程一併提供，Agent 目前不會真的寄信。",
+                "email_log_id": str(email_log.id),
+                "to": email_log.recipient,
+                "subject": email_log.subject,
+                "body": email_log.body,
+                "status": "draft",
             }
         else:
             output = {"error": f"未知工具：{name}"}
@@ -194,7 +211,7 @@ def process_request(
             break
 
         tool_use_blocks = [block for block in response.content if block.type == "tool_use"]
-        tool_results = execute_workflow(db, project_id, tool_use_blocks, state)
+        tool_results = execute_workflow(db, project_id, user, tool_use_blocks, state)
         messages.append({"role": "user", "content": tool_results})
 
     if final_text is None:

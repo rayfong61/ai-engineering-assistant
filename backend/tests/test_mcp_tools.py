@@ -83,12 +83,22 @@ def test_search_documents_tool_returns_empty_for_project_with_no_chunks(db_sessi
     assert search_documents.run("query", str(project.id)) == []
 
 
-def test_send_email_tool_never_actually_sends():
-    # Day 3 scope: proves the MCP plumbing exists without violating
-    # spec2.md section 24's human-in-the-loop requirement -- the real
-    # draft/preview/confirm/Gmail flow is Day 4.
+def test_send_email_tool_mock_mode_returns_sent(monkeypatch):
+    monkeypatch.setattr("app.mcp.tools.send_email.EMAIL_MODE", "mock")
+
     result = send_email.run("pm@example.com", "subject", "body")
-    assert result["status"] == "not_implemented"
+
+    assert result["status"] == "sent"
+
+
+def test_send_email_tool_non_mock_mode_fails_cleanly(monkeypatch):
+    # Real Gmail sending isn't wired up yet -- a non-mock EMAIL_MODE must
+    # fail rather than silently pretending to send.
+    monkeypatch.setattr("app.mcp.tools.send_email.EMAIL_MODE", "gmail")
+
+    result = send_email.run("pm@example.com", "subject", "body")
+
+    assert result["status"] == "failed"
 
 
 # The full MCP protocol round trip (Agent -> MCP Client -> mcp-server

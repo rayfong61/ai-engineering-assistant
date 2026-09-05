@@ -1,3 +1,5 @@
+import logging
+
 from mcp.server.mcpserver import MCPServer
 
 from app.mcp.tools import search_documents as search_documents_impl
@@ -29,4 +31,8 @@ def send_email(to: str, subject: str, body: str) -> dict:
 
 
 if __name__ == "__main__":
+    # Root logger defaults to WARNING -- without this, send_email.py's
+    # [MOCK EMAIL] confirmation (logger.info) is silently dropped even
+    # though the mock send itself succeeds.
+    logging.basicConfig(level=logging.INFO)
     mcp.run(transport="streamable-http", host="0.0.0.0", port=8001)

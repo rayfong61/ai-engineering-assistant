@@ -68,7 +68,9 @@ def test_agent_persists_tool_and_assistant_messages(client, current_user_overrid
     assert messages[2].metadata_["sources"][0]["filename"] == "a.pdf"
 
 
-def test_agent_never_calls_mcp_send_email(client, current_user_override, alice, db_session, monkeypatch):
+def test_agent_draft_email_persists_draft_but_never_calls_mcp(
+    client, current_user_override, alice, db_session, monkeypatch
+):
     current_user_override(alice)
     project_id = client.post("/api/projects", json={"name": "T3"}).json()["id"]
 
@@ -77,11 +79,11 @@ def test_agent_never_calls_mcp_send_email(client, current_user_override, alice, 
             _FakeMessage(
                 content=[
                     _tool_use_block(
-                        "send_email", {"to": "pm@example.com", "subject": "摘要", "body": "內容"}
+                        "draft_email", {"to": "pm@example.com", "subject": "摘要", "body": "內容"}
                     )
                 ]
             ),
-            _FakeMessage(content=[_text_block("好的，目前尚未開放寄信。")], stop_reason="end_turn"),
+            _FakeMessage(content=[_text_block("已產生草稿，請確認後送出。")], stop_reason="end_turn"),
         ]
     )
     monkeypatch.setattr("app.agent.agent_service.select_tools", lambda messages: next(turns))
@@ -95,6 +97,14 @@ def test_agent_never_calls_mcp_send_email(client, current_user_override, alice, 
     assert response.status_code == 200
     body = response.json()
 
-    send_email_call = next(tc for tc in body["tool_calls"] if tc["tool"] == "send_email")
-    assert send_email_call["output"]["status"] == "not_implemented"
-    assert db_session.query(EmailLog).count() == 0
+    draft_call = next(tc for tc in body["tool_calls"] if tc["tool"] == "draft_email")
+    assert draft_call["output"]["status"] == "draft"
+    assert draft_call["output"]["to"] == "pm@example.com"
+
+    email_log = db_session.query(EmailLog).filter_by(project_id=project_id).one()
+    assert email_log.status == "draft"
+    assert email_log.recipient == "pm@example.com"
+    assert email_log.subject == "摘要"
+    assert email_log.body == "內容"
+    assert str(email_log.project_id) == project_id
+    assert str(email_log.user_id) == alice["id"]

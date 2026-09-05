@@ -4,6 +4,7 @@ import { apiGet, apiPost } from '../lib/api'
 import Alert from './Alert'
 import Button from './Button'
 import ConversationList from './ConversationList'
+import EmailPreviewCard from './EmailPreviewCard'
 import Spinner from './Spinner'
 
 export default function AgentPanel({ projectId }) {
@@ -103,24 +104,33 @@ export default function AgentPanel({ projectId }) {
             <div className="flex flex-col gap-4">
               {messages.map((msg, i) => (
                 <div key={i} className={msg.role === 'user' ? 'text-right' : 'text-left'}>
-                  {msg.toolCalls?.length > 0 && (
+                  {msg.toolCalls?.some((tc) => tc.tool !== 'draft_email') && (
                     <div className="mb-1.5 flex flex-col items-start gap-1">
-                      {msg.toolCalls.map((tc, j) => (
-                        <span
-                          key={j}
-                          className="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-2 py-0.5 text-xs text-indigo-600"
-                        >
-                          <Wrench className="h-3 w-3" />
-                          {tc.tool}
-                          {tc.input && Object.keys(tc.input).length > 0 && (
-                            <span className="text-indigo-400">
-                              ({Object.values(tc.input).filter(Boolean).join(', ')})
-                            </span>
-                          )}
-                        </span>
-                      ))}
+                      {msg.toolCalls
+                        .filter((tc) => tc.tool !== 'draft_email')
+                        .map((tc, j) => (
+                          <span
+                            key={j}
+                            className="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-2 py-0.5 text-xs text-indigo-600"
+                          >
+                            <Wrench className="h-3 w-3" />
+                            {tc.tool}
+                            {tc.input && Object.keys(tc.input).length > 0 && (
+                              <span className="text-indigo-400">
+                                ({Object.values(tc.input).filter(Boolean).join(', ')})
+                              </span>
+                            )}
+                          </span>
+                        ))}
                     </div>
                   )}
+                  {msg.toolCalls
+                    ?.filter((tc) => tc.tool === 'draft_email')
+                    .map((tc, j) => (
+                      <div key={`email-${j}`} className="mb-2 inline-block">
+                        <EmailPreviewCard projectId={projectId} draft={tc.output} />
+                      </div>
+                    ))}
                   <div
                     className={`inline-block max-w-[85%] rounded-card px-3 py-2 text-sm whitespace-pre-wrap ${
                       msg.role === 'user' ? 'bg-brand-600 text-white' : 'bg-slate-100 text-slate-900'

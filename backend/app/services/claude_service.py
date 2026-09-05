@@ -131,6 +131,42 @@ SUMMARY_SYSTEM_PROMPT = """你是一個工程會議摘要助理。
 """
 
 
+EMAIL_DRAFT_SYSTEM_PROMPT = """你是一個工程專案助理，負責根據使用者的指示草擬一封 email。
+
+只能根據提供的背景資訊與使用者指示撰寫內容，不可以捏造未提及的工程資訊。
+沿用與文件問答/圖片分析/會議摘要相同的安全邊界用語（可觀察到 / 可能 / 疑似 / 需要人工確認），
+不得對結構安全、施工品質、法規合規、工程驗收做出未經證實的斷言。
+
+請輸出收件人（若使用者指示中有明確指定 email 地址則直接使用，否則沿用使用者提及的稱呼或名稱）、
+主旨、與內文。內文語氣專業、簡潔。
+"""
+
+EMAIL_DRAFT_OUTPUT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "to": {"type": "string"},
+        "subject": {"type": "string"},
+        "body": {"type": "string"},
+    },
+    "required": ["to", "subject", "body"],
+    "additionalProperties": False,
+}
+
+
+def generate_email_draft(instruction: str, context: str | None) -> dict:
+    user_content = (
+        instruction if not context else f"背景資訊：\n{context}\n\n使用者指示：{instruction}"
+    )
+    message = _client().messages.create(
+        model=CLAUDE_MODEL,
+        max_tokens=2048,
+        system=EMAIL_DRAFT_SYSTEM_PROMPT,
+        output_config={"format": {"type": "json_schema", "schema": EMAIL_DRAFT_OUTPUT_SCHEMA}},
+        messages=[{"role": "user", "content": user_content}],
+    )
+    return json.loads(_extract_text(message))
+
+
 def generate_summary(context_chunks: list[dict], vision_analyses: list[dict]) -> str:
     sections = []
     if context_chunks:
