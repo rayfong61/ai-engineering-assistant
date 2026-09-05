@@ -1,4 +1,6 @@
-from app.models import ProjectMember
+from app.core.config import STORAGE_BUCKET
+from app.core.supabase_client import get_supabase
+from app.models import Document, ProjectMember
 
 
 def test_create_project_returns_it(client, current_user_override, alice):
@@ -116,3 +118,26 @@ def test_non_member_cannot_delete_project(client, current_user_override, alice, 
     response = client.delete(f"/api/projects/{project_id}")
 
     assert response.status_code == 403
+
+
+def test_delete_project_removes_document_storage_objects(
+    client, db_session, current_user_override, alice, monkeypatch
+):
+    # Real Storage upload/remove calls (same as test_documents.py) -- only
+    # the Voyage/Claude ingestion pipeline is skipped.
+    monkeypatch.setattr("app.services.rag_service.ingest_document", lambda *a, **k: None)
+    current_user_override(alice)
+    project_id = client.post("/api/projects", json={"name": "T3"}).json()["id"]
+
+    upload = client.post(
+        f"/api/projects/{project_id}/documents",
+        files={"file": ("test.pdf", b"%PDF-1.4 fake content", "application/pdf")},
+    )
+    document_id = upload.json()["id"]
+    storage_path = db_session.query(Document).filter_by(id=document_id).one().storage_path
+
+    response = client.delete(f"/api/projects/{project_id}")
+    assert response.status_code == 204
+
+    folder = storage_path.rsplit("/", 1)[0]
+    assert get_supabase().storage.from_(STORAGE_BUCKET).list(folder) == []

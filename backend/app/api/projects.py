@@ -6,8 +6,10 @@ from sqlalchemy.orm import Session
 
 from app.core.auth import get_current_user
 from app.core.authorization import require_project_member, require_project_owner
+from app.core.config import STORAGE_BUCKET
 from app.core.database import get_db
-from app.models import Project, ProjectMember
+from app.core.supabase_client import get_supabase
+from app.models import Document, Project, ProjectMember, VisionAnalysis
 from app.schemas.project import ProjectCreate, ProjectOut
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
@@ -67,6 +69,25 @@ def delete_project(
 
     project = db.query(Project).filter(Project.id == project_id).first()
     if project:
+        # DB rows are the source of truth for what Storage objects exist --
+        # same assumption documents.py's delete_document makes. The cascade
+        # below deletes these rows, so their storage_path must be collected
+        # first or it's unrecoverable.
+        storage_paths = [
+            d.storage_path
+            for d in db.query(Document).filter(Document.project_id == project_id).all()
+            if d.storage_path
+        ] + [
+            v.storage_path
+            for v in db.query(VisionAnalysis).filter(VisionAnalysis.project_id == project_id).all()
+            if v.storage_path
+        ]
+        if storage_paths:
+            try:
+                get_supabase().storage.from_(STORAGE_BUCKET).remove(storage_paths)
+            except Exception:
+                pass  # storage cleanup best-effort; DB row is the source of truth
+
         db.delete(project)  # cascades to project_members/documents/conversations/etc
         db.commit()
 
