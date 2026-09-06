@@ -1,3 +1,4 @@
+import logging
 import uuid
 from datetime import datetime, timezone
 
@@ -18,6 +19,9 @@ from app.schemas.document import (
     SourceOut,
 )
 from app.services import claude_service, embedding_service, rag_service
+from app.services.activity_service import log_activity
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/projects/{project_id}", tags=["chat"])
 conversation_router = APIRouter(prefix="/api/conversations", tags=["chat"])
@@ -58,24 +62,29 @@ def chat(
         )
     )
 
-    # project_id filter happens inside retrieve_chunks -- cross-project
-    # retrieval is forbidden (spec2.md section 14).
-    matched_document_id = rag_service.match_document_by_filename(db, project_id, payload.message)
-    query_embedding = embedding_service.embed_query(payload.message)
-    chunks = rag_service.retrieve_chunks(
-        db, project_id, query_embedding, top_k=TOP_K, document_id=matched_document_id
-    )
+    try:
+        # project_id filter happens inside retrieve_chunks -- cross-project
+        # retrieval is forbidden (spec2.md section 14).
+        matched_document_id = rag_service.match_document_by_filename(db, project_id, payload.message)
+        query_embedding = embedding_service.embed_query(payload.message)
+        chunks = rag_service.retrieve_chunks(
+            db, project_id, query_embedding, top_k=TOP_K, document_id=matched_document_id
+        )
+        log_activity(db, project_id, user["id"], "rag_search_executed", detail=payload.message[:200])
 
-    filenames: dict[uuid.UUID, str] = {}
-    if chunks:
-        doc_ids = {c.document_id for c in chunks}
-        filenames = {d.id: d.filename for d in db.query(Document).filter(Document.id.in_(doc_ids)).all()}
+        filenames: dict[uuid.UUID, str] = {}
+        if chunks:
+            doc_ids = {c.document_id for c in chunks}
+            filenames = {d.id: d.filename for d in db.query(Document).filter(Document.id.in_(doc_ids)).all()}
 
-    context = [
-        {"filename": filenames.get(c.document_id, "unknown"), "page": c.page, "content": c.content}
-        for c in chunks
-    ]
-    answer = claude_service.generate_answer(payload.message, context)
+        context = [
+            {"filename": filenames.get(c.document_id, "unknown"), "page": c.page, "content": c.content}
+            for c in chunks
+        ]
+        answer = claude_service.generate_answer(payload.message, context)
+    except Exception as exc:
+        logger.exception("Chat request failed for project %s", project_id)
+        raise HTTPException(status_code=502, detail="回答問題失敗，請稍後再試") from exc
 
     db.add(
         Message(

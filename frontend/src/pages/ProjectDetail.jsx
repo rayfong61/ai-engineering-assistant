@@ -1,6 +1,7 @@
 import { Activity, ArrowLeft, Bot, FileText, Image, LogOut, MessageSquare } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
+import ActivityPanel from '../components/ActivityPanel'
 import AgentPanel from '../components/AgentPanel'
 import Button from '../components/Button'
 import ChatPanel from '../components/ChatPanel'
@@ -17,7 +18,7 @@ const TABS = [
   { key: 'chat', label: 'Chat', icon: MessageSquare },
   { key: 'vision', label: 'Vision', icon: Image },
   { key: 'agent', label: 'Agent', icon: Bot },
-  { key: 'activity', label: 'Activity', icon: Activity, placeholder: 'Activity Log 將在 Day 5 加入。' },
+  { key: 'activity', label: 'Activity', icon: Activity },
 ]
 
 export default function ProjectDetail() {
@@ -76,9 +77,9 @@ export default function ProjectDetail() {
           <div hidden={tab !== 'agent'}>
             <AgentPanel projectId={id} />
           </div>
-          {tab === 'activity' && (
-            <p className="text-slate-500">{TABS.find((t) => t.key === tab)?.placeholder}</p>
-          )}
+          <div hidden={tab !== 'activity'}>
+            <ActivityPanel projectId={id} />
+          </div>
         </>
       )}
     </PageShell>

@@ -11,6 +11,7 @@ from app.core.database import get_db
 from app.core.supabase_client import get_supabase
 from app.models import Document, Project, ProjectMember, VisionAnalysis
 from app.schemas.project import ProjectCreate, ProjectOut
+from app.services.activity_service import log_activity
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
 
@@ -38,6 +39,8 @@ def create_project(
         db.flush()  # assign project.id before creating the membership row
 
         db.add(ProjectMember(project_id=project.id, user_id=uuid.UUID(user["id"]), role="owner"))
+        db.commit()
+        log_activity(db, project.id, user["id"], "project_created", detail=project.name)
         db.commit()
     except IntegrityError as exc:
         db.rollback()

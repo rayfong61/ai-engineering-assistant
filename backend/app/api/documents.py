@@ -1,3 +1,4 @@
+import logging
 import uuid
 from pathlib import Path
 
@@ -12,6 +13,9 @@ from app.core.supabase_client import get_supabase
 from app.models import Document
 from app.schemas.document import DocumentOut
 from app.services import rag_service
+from app.services.activity_service import log_activity
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/projects/{project_id}/documents", tags=["documents"])
 
@@ -32,7 +36,14 @@ def _process_document_task(document_id: str, content: bytes) -> None:
     try:
         document = db.query(Document).filter(Document.id == document_id).first()
         if document:
-            rag_service.ingest_document(db, document, content)
+            try:
+                rag_service.ingest_document(db, document, content)
+            except Exception:
+                # ingest_document already marks the row status="failed" and
+                # re-raises -- but a BackgroundTask's exception has nowhere
+                # left to go once the response is already sent, so without
+                # this it silently vanishes instead of reaching any log.
+                logger.exception("Document ingestion failed for %s", document_id)
     finally:
         db.close()
 
@@ -67,6 +78,8 @@ async def upload_document(
     content = await file.read()
     if len(content) > MAX_PDF_SIZE:
         raise HTTPException(status_code=400, detail="檔案大小超過 100MB 上限")
+    if content[:5] != b"%PDF-":
+        raise HTTPException(status_code=400, detail="只接受 PDF 檔案")
 
     document = Document(
         project_id=project_id,
@@ -96,6 +109,9 @@ async def upload_document(
 
     db.commit()
     db.refresh(document)
+
+    log_activity(db, project_id, user["id"], "pdf_uploaded", detail=filename)
+    db.commit()
 
     background_tasks.add_task(_process_document_task, str(document.id), content)
 

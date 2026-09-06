@@ -25,6 +25,7 @@ services:
       - ./backend/tests:/app/tests
       - ./backend/alembic:/app/alembic
       - ./backend/alembic.ini:/app/alembic.ini
+      - ./backend/scripts:/app/scripts
       - ./data:/app/data
     # No depends_on: mcp-server -- the Agent should catch a connection
     # failure and return a clean 502 rather than couple backend startup to

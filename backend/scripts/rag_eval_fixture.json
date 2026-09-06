@@ -1,0 +1,110 @@
+[
+  {
+    "id": "q1",
+    "question": "T3 計畫的總經費是多少？",
+    "expected_document": "010705022.pdf",
+    "expected_pages": [3]
+  },
+  {
+    "id": "q2",
+    "question": "價值工程的公式或定義是什麼？",
+    "expected_document": "010705022.pdf",
+    "expected_pages": [2]
+  },
+  {
+    "id": "q3",
+    "question": "第三航廈設計團隊在基本設計階段分為幾個工作小組？",
+    "expected_document": "010705022.pdf",
+    "expected_pages": [4]
+  },
+  {
+    "id": "q4",
+    "question": "T3 計畫導入價值工程分析後，預估可節省多少金額？",
+    "expected_document": "010705022.pdf",
+    "expected_pages": [4, 5]
+  },
+  {
+    "id": "q5",
+    "question": "第三航廈的結構工程顧問是哪些公司？",
+    "expected_document": "10690_TaoyuanAirportT3_JS_zh_tw_1.pdf",
+    "expected_pages": [2]
+  },
+  {
+    "id": "q6",
+    "question": "第三航廈預期可將轉機時間縮短至多久？",
+    "expected_document": "10690_TaoyuanAirportT3_JS_zh_tw_1.pdf",
+    "expected_pages": [2]
+  },
+  {
+    "id": "q7",
+    "question": "第三航廈的總面積是多少？",
+    "expected_document": "10690_TaoyuanAirportT3_JS_zh_tw_1.pdf",
+    "expected_pages": [2]
+  },
+  {
+    "id": "q8",
+    "question": "桃園機場 2016 年旅客量是多少，全球排名第幾？",
+    "expected_document": "1427C50B-2EE1-4C91-B01B-2622246F58A1.pdf",
+    "expected_pages": [2]
+  },
+  {
+    "id": "q9",
+    "question": "第三航廈的建築設計主軸是哪三個關鍵字？",
+    "expected_document": "1427C50B-2EE1-4C91-B01B-2622246F58A1.pdf",
+    "expected_pages": [2]
+  },
+  {
+    "id": "q10",
+    "question": "第三航廈設定要取得哪些綠建築或智慧建築認證？",
+    "expected_document": "1427C50B-2EE1-4C91-B01B-2622246F58A1.pdf",
+    "expected_pages": [12]
+  },
+  {
+    "id": "q11",
+    "question": "第三航廈的智慧設計總計包含幾項子系統？",
+    "expected_document": "1427C50B-2EE1-4C91-B01B-2622246F58A1.pdf",
+    "expected_pages": [12]
+  },
+  {
+    "id": "q12",
+    "question": "第三航廈報到大廳共有幾個報到島區、總共幾個櫃檯？",
+    "expected_document": "1427C50B-2EE1-4C91-B01B-2622246F58A1.pdf",
+    "expected_pages": [17]
+  },
+  {
+    "id": "q13",
+    "question": "第三航廈主體工程及多功能大樓預計何時完工、何時啟用？",
+    "expected_document": "1427C50B-2EE1-4C91-B01B-2622246F58A1.pdf",
+    "expected_pages": [7]
+  },
+  {
+    "id": "q14",
+    "question": "移民署第三航廈配備建置計畫的計畫期程是哪兩年？",
+    "expected_document": "桃園國際機場第三航廈移民署配備建置計畫.pdf",
+    "expected_pages": [1]
+  },
+  {
+    "id": "q15",
+    "question": "移民署在第三航廈的辦公廳舍分配面積與裝修面積各是多少？",
+    "expected_document": "桃園國際機場第三航廈移民署配備建置計畫.pdf",
+    "expected_pages": [26]
+  },
+  {
+    "id": "q16",
+    "question": "移民署 e-Gate 通關系統建置的主要工作項目包括哪些？",
+    "expected_document": "桃園國際機場第三航廈移民署配備建置計畫.pdf",
+    "expected_pages": [41]
+  },
+  {
+    "id": "q17",
+    "question": "目前移民署已推動雙邊互惠自動通關的國家有哪幾國？",
+    "expected_document": "桃園國際機場第三航廈移民署配備建置計畫.pdf",
+    "expected_pages": [40]
+  },
+  {
+    "id": "q18",
+    "question": "移民署為保護入出境查驗個資，採取了哪些隱私安全維護措施？",
+    "expected_document": "桃園國際機場第三航廈移民署配備建置計畫.pdf",
+    "expected_pages": [45]
+  }
+]

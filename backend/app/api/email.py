@@ -43,7 +43,7 @@ def send_email(
     require_project_member(db, project_id, user)
 
     try:
-        return email_service.confirm_and_send(db, project_id, payload.email_log_id)
+        return email_service.confirm_and_send(db, project_id, payload.email_log_id, uuid.UUID(user["id"]))
     except LookupError as exc:
         raise HTTPException(status_code=404, detail="Email draft not found") from exc
     except ValueError as exc:

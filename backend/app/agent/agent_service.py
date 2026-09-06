@@ -11,6 +11,7 @@ from app.models import Conversation, Message, VisionAnalysis
 from app.schemas.agent import AgentResponse, AgentToolCallOut
 from app.schemas.document import SourceOut
 from app.services import claude_service, email_service, embedding_service, rag_service
+from app.services.activity_service import log_activity
 
 MAX_ITERATIONS = 6
 
@@ -65,6 +66,12 @@ generate_summary（整理會議摘要）、draft_email（產生 email 草稿，�
 
 呼叫 draft_email 只會產生草稿並存成 draft 狀態，讓使用者在 Email Preview 中確認——
 你自己永遠不能真的寄出郵件，寄送必須由使用者明確點擊 Confirm & Send 才會發生。
+
+只要使用者要求修改、精簡、調整用詞，或以任何方式變更一封已經產生的 email 草稿內容，
+你必須重新呼叫 draft_email 產生新的草稿，絕對不能只用文字描述「已經修改」卻沒有實際
+呼叫工具——使用者看到的 Email Preview 卡片只會反映真正呼叫過 draft_email 的結果，
+若你沒有呼叫，畫面上顯示的仍是舊的草稿內容，文字回覆聲稱已修改會誤導使用者按下
+Confirm & Send 時寄出錯誤的內容。
 
 取得足夠的文件/圖片資訊後，呼叫 generate_summary 產生最終回答。
 """
@@ -124,33 +131,43 @@ def execute_workflow(
                 "search_documents", {"query": tool_input["query"], "project_id": str(project_id)}
             )
             state.context_chunks.extend(output)
+            log_activity(
+                db, project_id, user["id"], "rag_search_executed", detail=tool_input["query"][:200]
+            )
         elif name == "analyze_image":
             output = _lookup_vision_analysis(db, project_id, tool_input.get("image_id"))
             if "error" not in output:
                 state.vision_analyses.append(output)
         elif name == "generate_summary":
             output = claude_service.generate_summary(state.context_chunks, state.vision_analyses)
+            log_activity(db, project_id, user["id"], "meeting_summary_generated")
         elif name == "draft_email":
             # Only ever persists a draft row -- never reaches the MCP
             # client. spec2.md section 24 forbids the Agent from
             # auto-sending; the real send only happens via
             # email_service.confirm_and_send, triggered by an explicit
             # user "Confirm & Send" click (POST /email/send).
-            email_log = email_service.save_draft(
-                db,
-                project_id,
-                uuid.UUID(user["id"]),
-                tool_input["to"],
-                tool_input["subject"],
-                tool_input["body"],
-            )
-            output = {
-                "email_log_id": str(email_log.id),
-                "to": email_log.recipient,
-                "subject": email_log.subject,
-                "body": email_log.body,
-                "status": "draft",
-            }
+            try:
+                email_log = email_service.save_draft(
+                    db,
+                    project_id,
+                    uuid.UUID(user["id"]),
+                    tool_input["to"],
+                    tool_input["subject"],
+                    tool_input["body"],
+                )
+                output = {
+                    "email_log_id": str(email_log.id),
+                    "to": email_log.recipient,
+                    "subject": email_log.subject,
+                    "body": email_log.body,
+                    "status": "draft",
+                }
+            except ValueError as exc:
+                # e.g. malformed recipient address -- surfaced back to Claude
+                # as a tool error so it can ask the user for a correction,
+                # rather than crashing the whole /agent request.
+                output = {"error": str(exc)}
         else:
             output = {"error": f"未知工具：{name}"}
 

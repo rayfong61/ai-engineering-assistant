@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.models import Document, DocumentChunk
 from app.services import embedding_service, pdf_service
+from app.services.activity_service import log_activity
 
 
 def ingest_document(db: Session, document: Document, file_bytes: bytes) -> None:
@@ -22,6 +23,9 @@ def ingest_document(db: Session, document: Document, file_bytes: bytes) -> None:
             return
 
         embeddings = embedding_service.embed_documents([c["content"] for c in chunks])
+        log_activity(
+            db, document.project_id, document.uploaded_by, "embedding_generated", detail=document.filename
+        )
 
         for chunk, embedding in zip(chunks, embeddings, strict=True):
             db.add(
@@ -35,6 +39,9 @@ def ingest_document(db: Session, document: Document, file_bytes: bytes) -> None:
                 )
             )
         document.status = "ready"
+        log_activity(
+            db, document.project_id, document.uploaded_by, "pdf_processing_completed", detail=document.filename
+        )
         db.commit()
     except Exception:
         db.rollback()

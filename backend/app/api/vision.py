@@ -12,6 +12,7 @@ from app.core.supabase_client import get_supabase
 from app.models import VisionAnalysis
 from app.schemas.vision import VisionAnalysisOut
 from app.services import vision_service
+from app.services.activity_service import log_activity
 
 router = APIRouter(prefix="/api/projects/{project_id}/vision", tags=["vision"])
 
@@ -132,6 +133,7 @@ async def analyze_image(
     record.analysis = result["analysis"]
     record.observations = result["observations"]
     record.limitations = result["limitations"]
+    log_activity(db, project_id, user["id"], "vision_analysis_completed", detail=filename)
     db.commit()
     db.refresh(record)
 

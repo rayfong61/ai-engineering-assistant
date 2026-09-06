@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project status
 
-Day 1 (spec2.md §37) is implemented and verified end-to-end: Docker scaffold, Supabase Auth (Google + Email/Password), Project CRUD, membership-only authorization. Day 2 is also implemented and verified end-to-end against a real T3 engineering PDF (PDF upload → Supabase Storage → PyMuPDF text extraction → fixed-size chunking → Voyage embedding → pgvector → Claude-generated answer with page citations); see "Day 2 implementation notes" below for details not in the spec. Day 3 (Claude Vision, Agent tool-selection loop, MCP server) is implemented and verified end-to-end against the same real T3 project — see "Day 3 implementation notes" below. Day 4 (Email Draft generation, Preview, Confirm & Send, Mock Email) is implemented and verified end-to-end with a real browser session — see "Day 4 implementation notes" below; Gmail OAuth (the real-send half of Day 4/§26) is intentionally not built yet, `EMAIL_MODE=mock` is the only working mode. `spec2.md` is the full specification and remains the source of truth; this file summarizes the parts most likely to be violated by default AI behavior, plus real implementation details that emerged during Days 1–4 and aren't in the spec (see "Implementation notes beyond the spec" below). Day 5 (buffer, Gmail OAuth if time allows, polish, RAG evaluation) is not yet built — follow §36/§37 build order for that.
+Day 1 (spec2.md §37) is implemented and verified end-to-end: Docker scaffold, Supabase Auth (Google + Email/Password), Project CRUD, membership-only authorization. Day 2 is also implemented and verified end-to-end against a real T3 engineering PDF (PDF upload → Supabase Storage → PyMuPDF text extraction → fixed-size chunking → Voyage embedding → pgvector → Claude-generated answer with page citations); see "Day 2 implementation notes" below for details not in the spec. Day 3 (Claude Vision, Agent tool-selection loop, MCP server) is implemented and verified end-to-end against the same real T3 project — see "Day 3 implementation notes" below. Day 4 (Email Draft generation, Preview, Confirm & Send, Mock Email) is implemented and verified end-to-end with a real browser session — see "Day 4 implementation notes" below. Day 5 (Activity Log, RAG Evaluation, error-handling polish) is implemented and verified against the real cloud project and real Voyage/Claude APIs — see "Day 5 implementation notes" below; **Gmail OAuth was deliberately not built** — per spec2.md §37's own risk-reduction note, `EMAIL_MODE=mock` is accepted as the permanent fallback, not unfinished work. `spec2.md` is the full specification and remains the source of truth; this file summarizes the parts most likely to be violated by default AI behavior, plus real implementation details that emerged during Days 1–5 and aren't in the spec (see "Implementation notes beyond the spec" below).
 
 `spec.md` is a superseded earlier draft (local-Docker-only, no auth, no multi-tenancy, ChromaDB) kept for history — do not follow it. `spec2.md` replaces it with a Supabase-backed, multi-tenant architecture.
 
@@ -79,30 +79,36 @@ frontend/            React + Vite + Tailwind
     pages/           Login.jsx (Google + Email/Password), Projects.jsx, ProjectDetail.jsx
     components/      Button/Input/Alert/Card/Badge/EmptyState/Tabs/Header/PageShell/Spinner,
                       DocumentsPanel.jsx, ChatPanel.jsx (Day 2), VisionPanel.jsx, AgentPanel.jsx (Day 3),
-                      EmailPreviewCard.jsx (Day 4, rendered inline inside AgentPanel -- no Email tab)
+                      EmailPreviewCard.jsx (Day 4, rendered inline inside AgentPanel -- no Email tab),
+                      ActivityPanel.jsx (Day 5)
     hooks/           useSession.js
     lib/             supabaseClient.js, api.js
 backend/app/
   main.py
-  api/               auth.py, projects.py, documents.py, chat.py, vision.py, agent.py, email.py (Day 4)
+  api/               auth.py, projects.py, documents.py, chat.py, vision.py, agent.py, email.py (Day 4),
+                      activity.py (Day 5)
   core/              config.py, database.py (SQLAlchemy engine/session),
                       auth.py (JWKS verification), authorization.py,
                       supabase_client.py (Storage/Auth-admin only)
-  models/            SQLAlchemy ORM: project.py, document.py, conversation.py, email_log.py, vision.py (Day 3)
+  models/            SQLAlchemy ORM: project.py, document.py, conversation.py, email_log.py, vision.py (Day 3),
+                      activity_log.py (Day 5)
   schemas/           project.py, document.py (Pydantic; Document/Chat/Conversation/Message),
-                      vision.py, agent.py (Day 3), email.py (Day 4)
+                      vision.py, agent.py (Day 3), email.py (Day 4), activity.py (Day 5)
   services/          pdf_service.py (extract/chunk), embedding_service.py (Voyage),
                       claude_service.py (RAG + Vision + summary + email draft generation),
                       rag_service.py (ingest/retrieve orchestration), vision_service.py (Day 3),
-                      email_service.py (Day 4 -- save_draft/generate_preview/confirm_and_send)
+                      email_service.py (Day 4 -- save_draft/generate_preview/confirm_and_send),
+                      activity_service.py (Day 5 -- log_activity helper)
   agent/             agent_service.py (Day 3 -- process_request/select_tools/execute_workflow,
                      hand-rolled Claude tool-use loop, no framework; Day 4 added the draft_email
                      branch, see "Day 4 implementation notes")
   mcp/               server.py, client.py, tools/{search_documents,send_email}.py (Day 3 scaffold,
                      send_email.py's real mock-mode logic landed Day 4 --
                      ships into backend/Dockerfile.mcp, a second image from the same build context)
-  alembic/           env.py, versions/0001_initial_schema.py .. 0003_vision_analyses.py
+  alembic/           env.py, versions/0001_initial_schema.py .. 0004_activity_logs.py
   alembic.ini
+backend/scripts/     eval_rag.py + rag_eval_fixture.json (Day 5, spec2.md §38 -- standalone, not pytest;
+                     mounted into the backend container via its own docker-compose.yml volume line)
 data/temp/
 data/samples/        gitignored -- sample T3 PDFs used for local extraction/RAG testing, not committed
 supabase/            config.toml (local CLI stack config, spec2.md doesn't mention this —
@@ -117,6 +123,8 @@ docker-compose.yml   services: frontend, backend, mcp-server (postgres/auth/stor
 Core tables: `projects`, `project_members` (role: owner/member), `documents` (status: uploaded/processing/ready/failed), `document_chunks` (page, chunk_index, embedding VECTOR(N)), `conversations`, `messages` (role: user/assistant/system/tool), `email_logs` (status: draft/confirmed/sent/failed/cancelled). Storage path convention: `projects/{project_id}/documents/{document_id}/{filename}` and `projects/{project_id}/images/{image_id}/{filename}` (§10).
 
 `vision_analyses` (Day 3 addition, not in spec2.md §9 -- the spec never defines a table for Vision results, only the §17 response shape `{analysis, observations, limitations}`): `id`, `project_id`, `uploaded_by`, `filename`, `storage_path`, `file_size`, `analysis` (text), `observations`/`limitations` (JSONB arrays), `created_at`. Named for the analysis row, not the raw image (which lives only in Storage) -- same split as `documents` vs `document_chunks`.
+
+`activity_logs` (Day 5 addition, backing spec2.md §29's Activity Log): `id`, `project_id` (nullable -- `NULL` only for the `user_logged_in` event, which has no project context), `user_id`, `event_type` (`CheckConstraint`-enforced to the 11 values in spec2.md §29's workflow chain), `detail` (free text -- recipient/filename only, never email body/subject or API keys, per the no-full-email-content logging rule below), `created_at`. See "Day 5 implementation notes" below for the plain-function design (`activity_service.log_activity`) and the exact call sites.
 
 ## Key API endpoints (spec2.md §27)
 
@@ -136,6 +144,7 @@ GET  /api/projects/{project_id}/vision       -- Day 3 addition beyond spec2.md �
 POST /api/projects/{project_id}/agent
 POST /api/projects/{project_id}/email/preview  -- Day 4
 POST /api/projects/{project_id}/email/send     -- Day 4, must go through the MCP tool, never bypass MCP
+GET  /api/projects/{project_id}/activity       -- Day 5 addition beyond spec2.md §27, backs the Activity tab
 GET  /api/health
 ```
 
@@ -207,6 +216,28 @@ Verified end-to-end with a real headless-browser session (Playwright, driven man
 
 7. **Scope stops at Mock Email.** `app/mcp/tools/send_email.py` now branches on `EMAIL_MODE`: `"mock"` logs and returns `status: "sent"`; anything else returns `status: "failed"` with an explanatory message, rather than pretending to send. Real Gmail OAuth (spec2.md §26) is a deliberately separate, not-yet-started follow-up — see "Email execution path" below, now updated to match.
 
+## Day 5 implementation notes
+
+Priority for Day 5 (buffer day, spec2.md §37) was: RAG Evaluation → Activity Log → error-handling polish, with Gmail OAuth explicitly last/skippable — per spec2.md §37's own risk-reduction note, staying on `EMAIL_MODE=mock` is an accepted outcome, not unfinished work, so Gmail OAuth was not built. Verified against the real cloud Supabase project and the real T3 project (`a736dc13-...`): `backend/tests/` is 56/56 passing (52 from Day 1–4 plus 4 new `test_activity.py` tests), `docker compose exec backend python -m scripts.eval_rag <project_id>` scored **17/18 (94%) retrieval accuracy** against a real 18-question fixture spanning all 4 sample PDFs, and the live app (a real logged-in browser session, not just automated tests) was observed hitting `GET /api/projects/{id}/activity` and getting real `user_logged_in` events back mid-build.
+
+1. **RAG Evaluation fixture (spec2.md §38) lives at `backend/scripts/rag_eval_fixture.json`, 18 questions with real page numbers read directly out of the 4 `data/samples/` PDFs** — not invented from filenames. `backend/scripts/eval_rag.py` reuses the exact production `embedding_service.embed_query` + `rag_service.retrieve_chunks` path (same functions `chat.py` calls), so it measures the real pipeline. It's a standalone script, not pytest, and needs `backend/scripts` mounted into the `backend` container (`docker-compose.yml` gained a `./backend/scripts:/app/scripts` volume line) plus an empty `backend/scripts/__init__.py` — without the `__init__.py`, `python scripts/eval_rag.py` puts the *script's own directory* on `sys.path` (not the cwd), so `from app... import` fails with `ModuleNotFoundError: No module named 'app'`; run it as `python -m scripts.eval_rag <project_id>` instead, which puts cwd (`/app`) on the path correctly.
+
+2. **`embedding_service.embed_query` has no built-in rate-limit throttling, unlike `embed_documents`.** The Voyage account backing this project has no payment method on file, capping it at 3 RPM (see `embedding_service.py`'s existing `BATCH_SIZE=8`/`BATCH_DELAY_SECONDS=21` comment for `embed_documents`) — but `embed_query` is called once per chat/agent turn with no such delay, which was never a problem in normal use (one query at a time, seconds apart) until `eval_rag.py` started firing 18 queries back-to-back. Fixed with a 25s delay between fixture questions plus a retry-with-backoff wrapper around `embed_query` for when a prior run's rate-limit window hasn't cleared yet. **Corollary learned the hard way: don't run `docker compose restart backend` (or anything that recreates/restarts the `backend` container) while `eval_rag.py` is running inside it via `docker compose exec`** — the restart kills the exec'd process outright (exit 137), losing all progress; let it finish first.
+
+3. **Activity Log (spec2.md §29) is a plain table + one helper function, not an event framework** — `app/services/activity_service.log_activity(db, project_id, user_id, event_type, detail=None)` is called inline at 11 call sites (`auth.py`, `projects.py`, `documents.py`, `rag_service.py`, `chat.py`, `agent_service.py` x2, `vision.py`, `email_service.py` x3) reproducing spec2.md §29's exact event chain. `log_activity` wraps its insert in `db.begin_nested()` (a SAVEPOINT) specifically so a logging failure can never abort the caller's real transaction — `SessionLocal(autoflush=False)` project-wide (Day 3 note 8) means one aborted statement blocks the whole session until rollback otherwise. `tests/test_activity.py::test_log_activity_failure_does_not_abort_caller_transaction` pins this by deliberately tripping the table's `event_type` `CheckConstraint` and asserting the session is still usable afterward.
+
+4. **`user_logged_in` has no natural backend call site, because login never touches the backend.** Supabase Auth's login flow is entirely client-side (`supabase.auth.signInWithOAuth`/`signInWithPassword`) — the backend only ever sees a JWT on the *next* authenticated request. Fixed by having `frontend/src/hooks/useSession.js` fire a fire-and-forget `apiGet('/api/auth/me')` on the `SIGNED_IN` auth-state-change event purely to trigger the log; `GET /api/auth/me` (`app/api/auth.py`) gained a `db` dependency and now logs+commits before returning the user dict. Because this event has `project_id=None` (no project context at login), `GET /api/projects/{project_id}/activity`'s query has to `OR` in the requesting user's own `project_id IS NULL` rows alongside the project-scoped ones — a global event must never leak into another member's view of the same project, only the logged-in user's own.
+
+5. **`email_service.confirm_and_send` gained a `user_id` parameter.** It previously only recorded `email_log.user_id` (whoever *drafted* the email, e.g. the Agent's `draft_email` tool call), which isn't necessarily whoever clicked Confirm & Send. `POST /email/send` (`app/api/email.py`) now threads the current request's `user["id"]` through so `user_confirmed_email`/`email_sent` attribute to the actual confirmer.
+
+6. **A real, load-bearing error-handling gap found while wiring `save_draft`'s new email-format validation**: raising a plain `ValueError` from inside `agent_service.execute_workflow`'s `draft_email` branch would have been caught by `app/api/agent.py`'s existing `except ValueError: raise HTTPException(404, "Conversation not found")` — the *only* other current raiser of that exact exception type — mislabeling a bad email address as a missing conversation. Fixed at the source instead of by exception-type gymnastics: `execute_workflow` catches the validation `ValueError` itself and returns `{"error": ...}` as the tool's output (same pattern already used for `analyze_image`'s "no image yet" case), so Claude sees the failure and can ask the user for a corrected address instead of the whole `/agent` request blowing up. `app/api/agent.py` separately gained a broad `except Exception: raise HTTPException(502, ...)` after its `except ValueError` clause, for genuinely unexpected failures (Claude/Voyage/MCP errors mid-loop) that previously fell through to the generic unhandled-exception 500.
+
+7. **`chat.py` had zero exception handling**, unlike every other route file (documents/vision/agent/email all use `HTTPException` with Chinese messages) — a Voyage or Claude failure mid-request fell through to the bare `{"detail": "Internal server error"}` global handler. Wrapped the retrieval+generation block in `try/except Exception: raise HTTPException(502, "回答問題失敗，請稍後再試")`, consistent with the rest of the codebase.
+
+8. **PDF upload validated only the `.pdf` extension, not file content** (spec2.md §32's file-type validation minimum). A renamed non-PDF passed upload and failed silently inside the background task — `_process_document_task` had no try/except at all, so `rag_service.ingest_document`'s re-raised exception (after correctly marking `status="failed"`) vanished into an uncaught `BackgroundTask` exception with nothing logged. Fixed both: a `%PDF-` magic-byte check alongside the extension check in `documents.py`'s upload route, and a `try/except Exception: logger.exception(...)` around the background task's `ingest_document` call so a real ingestion failure is at least visible in `docker compose logs backend`.
+
+9. **A real, live-testing-only bug: the Agent could claim it revised an email draft without ever calling `draft_email` again**, silently breaking the Email Preview's human-in-the-loop guarantee (§24) that what's shown before Confirm & Send is what actually gets sent. Reproduced live: asking the Agent to "修改精簡一些" after an initial `draft_email` call produced a plausible-sounding assistant reply ("已重新產生精簡版 email 草稿...") with **no corresponding `tool` message in `messages`** — Claude never invoked the tool, it just narrated a fabricated outcome in text. Root cause: `process_request` only replays prior **plain-text** user/assistant messages across `/agent` requests (Day 3 note 8's design), never the actual `tool_use`/`tool_result` history — so on a follow-up turn Claude has no structural memory that the draft it's describing was ever the result of a real tool call, and nothing in `AGENT_SYSTEM_PROMPT` told it a revision request *must* trigger a fresh `draft_email` call rather than just a fresh sentence. Fixed with an explicit prompt instruction: any request to modify/shorten/reword an already-generated draft must re-invoke `draft_email`, because the Preview card only ever reflects an actual tool call's output, and a stale card left on screen would send the wrong content if confirmed. Verified by directly reproducing the exact draft → "修改精簡一些" sequence via `agent_service.process_request` before and after the fix (before: turn 2's `tool_calls` was empty; after: `['draft_email']`). Also confirmed real `AgentPanel.jsx` behavior while investigating: each `draft_email` tool call renders its own independent `EmailPreviewCard` scoped to its own `email_log_id` (no cross-send risk between multiple drafts in one conversation), and the panel auto-scrolls to the newest message on every turn, which was judged sufficient mitigation against accidentally confirming a superseded still-visible draft card — deliberately did not add auto-cancel/gray-out logic for older cards, since `email_logs` has no `conversation_id` column and a same-conversation heuristic can't reliably distinguish "this is a revision" from "this is a second, unrelated email."
+
 ## LLM / embedding providers
 
 Unlike the earlier draft, `spec2.md` does **not** ask for a swappable multi-provider abstraction: Claude API is the fixed LLM/Vision provider, Voyage AI is the fixed embedding provider (§5–6, §41). Still isolate them behind `claude_service.py` / `embedding_service.py` so provider-specific details don't leak into `rag_service.py` or `agent_service.py` — but don't build a `LLM_PROVIDER=gemini|anthropic` switch; that abstraction was dropped in this spec version.
@@ -242,6 +273,7 @@ docker compose run --rm backend alembic upgrade head    # first run, or whenever
 docker compose logs -f
 docker compose logs -f mcp-server                        # MCP server's own log stream (Day 3)
 docker compose restart mcp-server                        # required after any edit under backend/app/mcp/ -- no hot-reload (Day 4 note 2)
+docker compose exec backend python -m scripts.eval_rag <project_id>  # RAG retrieval accuracy (Day 5, spec2.md §38) -- don't restart backend while this runs (Day 5 note 2)
 docker compose down                                      # frontend/backend/mcp-server only; Supabase data untouched either way
 npx supabase stop                                        # stop local Supabase fallback stack (keeps data)
 ```
