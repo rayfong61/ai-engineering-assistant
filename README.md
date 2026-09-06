@@ -1,15 +1,38 @@
 # AI Engineering Assistant
 
-工程文件 RAG + Vision + Agent + MCP + Gmail 展示專案。開發準則與逐日實作細節見 [`CLAUDE.md`](CLAUDE.md)。
+Project-scoped、多使用者的 AI 工程助理，以桃園國際機場第三航廈（T3）公開工程文件為 demo 資料。開發準則與逐日實作細節見 [`CLAUDE.md`](CLAUDE.md)。
 
-## 目前進度：Day 5 / 5 完成（spec2.md 第 37 節，Gmail OAuth 除外）
+## 這個專案展示什麼
 
-- [x] **Day 1** — Docker Compose（frontend + backend）、Supabase Auth（Google + Email/Password）、Project CRUD、`project_members` membership-only 授權，已用真實 Supabase Auth token 端對端驗證
-- [x] **Day 2** — PDF 上傳 → Supabase Storage → PyMuPDF 抽取 → 固定大小分塊 → Voyage Embedding → pgvector → Claude 生成答案（含來源文件＋頁碼引用），已對真實 T3 工程 PDF 端對端驗證
-- [x] **Day 3** — Claude Vision、Agent 工具選擇迴圈、MCP server（`search_documents`、`send_email`，獨立容器 `mcp-server`，只在 compose 內網可連）
-- [x] **Day 4** — Email 草稿生成（Agent 的 `draft_email` 工具）、Preview 卡片、Confirm & Send、Mock Email（`EMAIL_MODE=mock`），已用 Playwright 真實瀏覽器跑過完整流程
-- [x] **Day 5** — Activity Log（新增 `activity_logs` 表，11 個工作流程節點都會記錄，見 Activity 分頁）、RAG Evaluation（`backend/scripts/eval_rag.py`，對真實 18 題題庫跑出 **94% 檢索準確率**）、error handling 補強（chat.py 例外處理、PDF 內容驗證、Email 格式驗證）
-- [ ] **Gmail OAuth**（spec2.md §37 風險簡化原則明確允許不做——`EMAIL_MODE=mock` 是正式接受的 fallback，不是未完成事項；`GMAIL_CLIENT_ID` 等變數仍保留但未使用）
+```
+Google 登入 → 建立專案 → 上傳工程 PDF/圖片 → RAG 問答 → Vision 分析 → Agent 整合 → Email 確認寄送
+```
+
+不是一個聊天機器人，而是一條完整的工程 pipeline，串起以下幾項技術能力：
+
+- **RAG 檢索增強生成** — PDF 解析（PyMuPDF）→ 分塊 → Voyage AI embedding → pgvector 相似度檢索 → Claude 生成回答，並保留來源文件＋頁碼，禁止臆測（檢索不到就明確說沒有足夠資訊）。對 18 題真實題庫跑出 **94% 檢索準確率**（`backend/scripts/eval_rag.py`）。
+- **Claude Vision** — 分析工程圖片，用「可觀察到／可能／疑似／需要人工確認」等保留語氣描述，不對結構安全、施工品質、法規合規做未經證據支持的斷言。
+- **Agent 工具選擇迴圈** — 不依賴 LangChain/LangGraph 等框架，手刻 Claude tool-use 迴圈，讓 Claude 自主判斷何時呼叫 `search_documents`／`analyze_image`／`generate_summary`／`draft_email`，把 RAG 檢索與圖片分析整合成會議摘要。
+- **MCP（Model Context Protocol）** — 獨立容器 `mcp-server`，只在 Docker compose 內網服務，backend 透過 MCP 呼叫 `search_documents`／`send_email`，frontend/瀏覽器完全連不到，結構性防止繞過 Project 授權。
+- **Human-in-the-Loop** — Agent 只能產生 Email 草稿，永遠不能自己寄出；使用者在 Preview 畫面看到 To/Subject/Body 後，必須明確點擊 Confirm & Send 才會透過 MCP 呼叫寄信。
+- **多租戶授權** — Project 是資料隔離單位，每個請求都從 JWT 解析身份、檢查 `project_members`，向量檢索一律加 `project_id` 過濾，不會跨專案洩漏資料。
+- **Activity Log** — 11 個關鍵工作流程節點（登入、上傳、embedding、RAG 檢索、Vision 分析、摘要生成、Email 草稿/確認/寄出）都會留下可追溯的紀錄。
+
+## 刻意不做的取捨
+
+- **Gmail OAuth 未實作**，Email 固定走 `EMAIL_MODE=mock`（記錄寄送內容但不真的呼叫 Gmail API）。這是刻意的風險控管：demo 要證明的是 Human-in-the-Loop 確認機制本身，不是「真的把信寄出去」，真寄信需要額外一組獨立的 Gmail-only OAuth（跟登入用的 Google OAuth 是兩回事），列為之後有時間再做的項目。
+- **文件上傳只支援 PDF**，圖片只支援 JPG/PNG/WEBP，沒有 Word/Excel 等格式——超出 MVP 範圍。
+- **授權只做「是否為專案成員」的檢查**，沒有做 owner/member 權限差異化（`role` 欄位保留，之後可以擴充）。
+- **不使用 LangChain/LangGraph 等 Agent 框架**，Tool-use 迴圈是手刻的簡單迴圈——換取的是完全掌控 Prompt 與工具邊界（例如結構性保證 Agent 不會呼叫真正的寄信工具），而不是框架的便利性。
+
+## 建置過程（Day 1-5，均已對真實資料端對端驗證，非僅單元測試）
+
+- [x] **Day 1** — Docker Compose、Supabase Auth（Google + Email/Password）、Project CRUD、`project_members` membership-only 授權
+- [x] **Day 2** — PDF 上傳 → Supabase Storage → PyMuPDF 抽取 → 分塊 → Voyage Embedding → pgvector → Claude 生成答案（含來源文件＋頁碼引用）
+- [x] **Day 3** — Claude Vision、Agent 工具選擇迴圈、MCP server（`search_documents`、`send_email`）
+- [x] **Day 4** — Email 草稿生成、Preview 卡片、Confirm & Send、Mock Email
+- [x] **Day 5** — Activity Log、RAG Evaluation（94% 檢索準確率）、error handling 補強
+- [ ] Gmail OAuth（見上方「刻意不做的取捨」）
 
 自動化測試：`backend/tests/`，56 個測試全過（`docker compose exec backend python -m pytest -v`）。
 
@@ -17,7 +40,7 @@
 
 ### 三個容器：frontend / backend / mcp-server
 
-`docker compose up -d` 會啟動三個容器。`mcp-server`（Day 3 加入）是從 `backend/` 同一份 build context 另外建出的第二個 image（`backend/Dockerfile.mcp`），與 `backend` 共用 `requirements.txt`、直接 import `app.services`/`app.models`，不是獨立的頂層套件。它只在 compose 內網用 Streamable HTTP 提供服務（`mcp-server:8001`），host 上開的 `8001` port 純粹方便本機除錯，正式流程裡 frontend/瀏覽器永遠連不到它——這是 spec2.md 第 21 節「MCP 不可繞過 Project Authorization」的結構性保證：MCP server 本身沒有 JWT/使用者context，能檢查權限的只有已經驗證過身份的 backend。
+`docker compose up -d` 會啟動三個容器。`mcp-server`（Day 3 加入）是從 `backend/` 同一份 build context 另外建出的第二個 image（`backend/Dockerfile.mcp`），與 `backend` 共用 `requirements.txt`、直接 import `app.services`/`app.models`，不是獨立的頂層套件。它只在 compose 內網用 Streamable HTTP 提供服務（`mcp-server:8001`），host 上開的 `8001` port 純粹方便本機除錯，正式流程裡 frontend/瀏覽器永遠連不到它——這是「MCP 不可繞過 Project Authorization」的結構性保證：MCP server 本身沒有 JWT/使用者context，能檢查權限的只有已經驗證過身份的 backend。
 
 `mcp-server` **沒有 hot-reload**（`backend` 有，靠 `uvicorn --reload`）。改了 `backend/app/mcp/` 底下的東西之後，要手動：
 
@@ -57,12 +80,12 @@ Supabase 用 **ES256 非對稱簽章**簽發使用者 session token（不是舊�
 
 ### 兩種登入方式
 
-- **Google 登入**：正式 demo 用（spec2.md 的 demo flow 就是 Google 登入），需要在 Supabase 設定 Google provider。
+- **Google 登入**：正式 demo 用，需要在 Supabase 設定 Google provider。
 - **Email/Password**：本地開發/測試用，前端 Login 頁面內建表單，不需要任何外部 OAuth 設定。
 
 ### Email 寄送：兩組完全獨立的 OAuth，且 Gmail 那組尚未實作
 
-Supabase Auth 的 Google 登入（scope: openid/email/profile）跟 Gmail 寄信（scope: `gmail.send`）是**兩個獨立的 OAuth 授權**，不要假設登入的 token 可以拿來寄信（詳見 spec2.md 第 26 節）。目前只有 `EMAIL_MODE=mock` 這條路可用：`app/mcp/tools/send_email.py` 會記錄 `[MOCK EMAIL] to=... subject=...`（不記完整內文）並回傳 `status: "sent"`；任何非 `mock` 的 `EMAIL_MODE` 會乾淨地回傳 `status: "failed"`，因為 Gmail client 尚未實作，`GMAIL_CLIENT_ID`/`GMAIL_CLIENT_SECRET`/`GMAIL_REDIRECT_URI` 目前只是預留變數。
+Supabase Auth 的 Google 登入（scope: openid/email/profile）跟 Gmail 寄信（scope: `gmail.send`）是**兩個獨立的 OAuth 授權**，不要假設登入的 token 可以拿來寄信。目前只有 `EMAIL_MODE=mock` 這條路可用：`app/mcp/tools/send_email.py` 會記錄 `[MOCK EMAIL] to=... subject=...`（不記完整內文）並回傳 `status: "sent"`；任何非 `mock` 的 `EMAIL_MODE` 會乾淨地回傳 `status: "failed"`，因為 Gmail client 尚未實作，`GMAIL_CLIENT_ID`/`GMAIL_CLIENT_SECRET`/`GMAIL_REDIRECT_URI` 目前只是預留變數。
 
 ## 前置設定
 
@@ -153,6 +176,12 @@ DATABASE_URL=postgresql+psycopg://postgres:postgres@localhost:54322/postgres pyt
 ```
 
 `get_current_user`（JWT/JWKS 驗證）在測試裡是用假使用者 override 掉的（見 `tests/conftest.py`）——測試在驗證我們自己寫的授權/CRUD/RAG/Agent/Email 邏輯，不是重新驗證 Supabase 的 token 簽發機制，那部分已經用真實登入手動測過。
+
+RAG 檢索準確率評估（對真實 18 題題庫，跑真實 Voyage/Claude API）：
+
+```bash
+docker compose exec backend python -m scripts.eval_rag <project_id>
+```
 
 ## 建立新的 schema migration
 
