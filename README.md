@@ -1,6 +1,6 @@
 # AI Engineering Assistant
 
-工程文件 RAG + Vision + Agent + MCP + Gmail 展示專案。完整規格見 [`spec2.md`](spec2.md)，開發準則與逐日實作細節見 [`CLAUDE.md`](CLAUDE.md)。
+工程文件 RAG + Vision + Agent + MCP + Gmail 展示專案。開發準則與逐日實作細節見 [`CLAUDE.md`](CLAUDE.md)。
 
 ## 目前進度：Day 5 / 5 完成（spec2.md 第 37 節，Gmail OAuth 除外）
 

@@ -19,6 +19,10 @@ data/temp/*
 !data/temp/.gitkeep
 data/samples/
 
+# Internal planning doc -- includes interview script/talking points
+# (sections 39-40), not meant for a shared/public repo
+spec2.md
+
 # OS / editor
 .DS_Store
 Thumbs.db
