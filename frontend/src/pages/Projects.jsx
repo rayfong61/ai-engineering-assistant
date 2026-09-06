@@ -1,4 +1,4 @@
-import { FolderOpen, LogOut, Plus, Trash2 } from 'lucide-react'
+import { FolderOpen, LogOut, Plus, Settings as SettingsIcon, Trash2 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import Alert from '../components/Alert'
@@ -68,9 +68,19 @@ export default function Projects() {
   return (
     <PageShell
       headerActions={
-        <Button variant="ghost" size="sm" icon={<LogOut className="h-4 w-4" />} onClick={handleLogout}>
-          登出
-        </Button>
+        <div className="flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="sm"
+            icon={<SettingsIcon className="h-4 w-4" />}
+            onClick={() => navigate('/settings')}
+          >
+            設定
+          </Button>
+          <Button variant="ghost" size="sm" icon={<LogOut className="h-4 w-4" />} onClick={handleLogout}>
+            登出
+          </Button>
+        </div>
       }
     >
       <h1 className="mb-4 text-xl font-semibold text-slate-900">我的專案</h1>

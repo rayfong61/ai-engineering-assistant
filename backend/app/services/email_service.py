@@ -83,7 +83,12 @@ def confirm_and_send(db: Session, project_id: str, email_log_id: uuid.UUID, user
     try:
         result = mcp_client.call_tool(
             "send_email",
-            {"to": email_log.recipient, "subject": email_log.subject, "body": email_log.body},
+            {
+                "to": email_log.recipient,
+                "subject": email_log.subject,
+                "body": email_log.body,
+                "user_id": str(user_id),
+            },
         )
     except Exception:
         email_log.status = "failed"

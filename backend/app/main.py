@@ -4,7 +4,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api import activity, agent, auth, chat, documents, email, projects, vision
+from app.api import activity, agent, auth, chat, documents, email, gmail, projects, vision
 from app.core.config import FRONTEND_URL
 
 logger = logging.getLogger(__name__)
@@ -40,6 +40,7 @@ app.include_router(vision.router)
 app.include_router(agent.router)
 app.include_router(email.router)
 app.include_router(activity.router)
+app.include_router(gmail.router)
 
 
 @app.get("/api/health")

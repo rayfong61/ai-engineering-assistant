@@ -23,11 +23,13 @@ def search_documents(query: str, project_id: str) -> list[dict]:
 
 
 @mcp.tool()
-def send_email(to: str, subject: str, body: str) -> dict:
-    """Stub for Day 4's real Gmail send -- never invoked by the Agent's
-    tool loop directly (human-in-the-loop, spec2.md section 24); wired here
-    so the MCP plumbing itself is provably end-to-end."""
-    return send_email_impl.run(to, subject, body)
+def send_email(to: str, subject: str, body: str, user_id: str) -> dict:
+    """Sends via Gmail (EMAIL_MODE=gmail, using user_id's connected Gmail
+    credential) or logs a mock send (EMAIL_MODE=mock). Never invoked by the
+    Agent's tool loop directly (human-in-the-loop, spec2.md section 24) --
+    only email_service.confirm_and_send calls this, after an explicit user
+    Confirm & Send."""
+    return send_email_impl.run(to, subject, body, user_id)
 
 
 if __name__ == "__main__":

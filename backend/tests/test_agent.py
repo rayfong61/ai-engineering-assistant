@@ -108,3 +108,31 @@ def test_agent_draft_email_persists_draft_but_never_calls_mcp(
     assert email_log.body == "內容"
     assert str(email_log.project_id) == project_id
     assert str(email_log.user_id) == alice["id"]
+
+
+def test_agent_analyze_image_with_non_uuid_image_id_fails_cleanly(
+    client, current_user_override, alice, monkeypatch
+):
+    # Claude sometimes passes a filename (or other non-UUID text) as
+    # image_id instead of leaving it blank -- this used to crash the whole
+    # request with a 502 (psycopg.InvalidTextRepresentation querying a UUID
+    # column). It must instead surface as a normal tool-error output that
+    # Claude can react to in its next turn.
+    current_user_override(alice)
+    project_id = client.post("/api/projects", json={"name": "T3"}).json()["id"]
+
+    turns = iter(
+        [
+            _FakeMessage(
+                content=[_tool_use_block("analyze_image", {"image_id": "螢幕擷取畫面 2026-09-06.png"})]
+            ),
+            _FakeMessage(content=[_text_block("請確認圖片是否已上傳。")], stop_reason="end_turn"),
+        ]
+    )
+    monkeypatch.setattr("app.agent.agent_service.select_tools", lambda messages: next(turns))
+
+    response = client.post(f"/api/projects/{project_id}/agent", json={"message": "整理這張圖片重點"})
+
+    assert response.status_code == 200
+    analyze_call = next(tc for tc in response.json()["tool_calls"] if tc["tool"] == "analyze_image")
+    assert "error" in analyze_call["output"]

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project status
 
-Day 1 (spec2.md §37) is implemented and verified end-to-end: Docker scaffold, Supabase Auth (Google + Email/Password), Project CRUD, membership-only authorization. Day 2 is also implemented and verified end-to-end against a real T3 engineering PDF (PDF upload → Supabase Storage → PyMuPDF text extraction → fixed-size chunking → Voyage embedding → pgvector → Claude-generated answer with page citations); see "Day 2 implementation notes" below for details not in the spec. Day 3 (Claude Vision, Agent tool-selection loop, MCP server) is implemented and verified end-to-end against the same real T3 project — see "Day 3 implementation notes" below. Day 4 (Email Draft generation, Preview, Confirm & Send, Mock Email) is implemented and verified end-to-end with a real browser session — see "Day 4 implementation notes" below. Day 5 (Activity Log, RAG Evaluation, error-handling polish) is implemented and verified against the real cloud project and real Voyage/Claude APIs — see "Day 5 implementation notes" below; **Gmail OAuth was deliberately not built** — per spec2.md §37's own risk-reduction note, `EMAIL_MODE=mock` is accepted as the permanent fallback, not unfinished work. `spec2.md` is the full specification and remains the source of truth; this file summarizes the parts most likely to be violated by default AI behavior, plus real implementation details that emerged during Days 1–5 and aren't in the spec (see "Implementation notes beyond the spec" below).
+Day 1 (spec2.md §37) is implemented and verified end-to-end: Docker scaffold, Supabase Auth (Google + Email/Password), Project CRUD, membership-only authorization. Day 2 is also implemented and verified end-to-end against a real T3 engineering PDF (PDF upload → Supabase Storage → PyMuPDF text extraction → fixed-size chunking → Voyage embedding → pgvector → Claude-generated answer with page citations); see "Day 2 implementation notes" below for details not in the spec. Day 3 (Claude Vision, Agent tool-selection loop, MCP server) is implemented and verified end-to-end against the same real T3 project — see "Day 3 implementation notes" below. Day 4 (Email Draft generation, Preview, Confirm & Send, Mock Email) is implemented and verified end-to-end with a real browser session — see "Day 4 implementation notes" below. Day 5 (Activity Log, RAG Evaluation, error-handling polish) is implemented and verified against the real cloud project and real Voyage/Claude APIs — see "Day 5 implementation notes" below. **Real Gmail OAuth + Gmail API sending is now implemented and verified end-to-end** (`EMAIL_MODE=gmail`, a real email sent through a real connected Gmail account and confirmed delivered), as a post-Day-5 follow-up — `EMAIL_MODE=mock` remains the default and a fully supported fallback when Gmail isn't configured — see "Gmail OAuth implementation notes" below. `spec2.md` is the full specification and remains the source of truth; this file summarizes the parts most likely to be violated by default AI behavior, plus real implementation details that emerged during Days 1–5 (and the Gmail OAuth follow-up) and aren't in the spec (see "Implementation notes beyond the spec" below).
 
 `spec.md` is a superseded earlier draft (local-Docker-only, no auth, no multi-tenancy, ChromaDB) kept for history — do not follow it. `spec2.md` replaces it with a Supabase-backed, multi-tenant architecture.
 
@@ -30,7 +30,7 @@ Demo flow: Google login → create project → upload PDF → RAG-index it (Voya
 8. Vision analysis must describe only what's visibly observable — never assert structural safety, construction quality, or regulatory compliance unless explicit evidence exists (§17–18). Use "可觀察到 / 可能 / 疑似 / 需要人工確認" phrasing, not affirmative claims.
 9. RAG answers must be grounded only in retrieved context; if context is insufficient, the LLM must respond with `目前提供的工程文件中沒有足夠資訊回答此問題。` rather than inventing facts (§16).
 10. Don't log API keys, OAuth tokens, Supabase service role key, or full email contents (§32).
-11. **Do not conflate the two Google OAuth flows.** Supabase Auth's Google login (scopes: openid/email/profile, for app identity) is a separate authorization from the Gmail-send OAuth (scope: `gmail.send`, for actually sending mail) — see `spec2.md` §26 for the two supported approaches (extending Supabase's OAuth with `additional_scopes` + manually persisted `provider_refresh_token`, or a fully separate Gmail-only OAuth flow). Pick one explicitly before implementing; don't assume the login token can send email.
+11. **Do not conflate the two Google OAuth flows.** Supabase Auth's Google login (scopes: openid/email/profile, for app identity) is a separate authorization from the Gmail-send OAuth (scope: `gmail.send`, for actually sending mail) — see `spec2.md` §26 for the two supported approaches. **Decided and built:** the fully separate Gmail-only OAuth flow (spec2.md §37's own risk-reduction pick), not an extension of Supabase's login scope — see "Gmail OAuth implementation notes" below. Don't assume the login token can send email.
 12. `document_chunks.embedding` dimension (`VECTOR(N)`) must match the actual Voyage AI model's output dimension — don't guess it before checking the model docs (§9).
 
 ## Build order
@@ -39,7 +39,7 @@ Implement strictly P0 → P1 → P2 (§36), verifying the previous stage still w
 
 - **P0**: Google Login (Supabase Auth), Project CRUD, multi-user permission (project_members), PDF upload → Supabase Storage → parsing → chunking → Voyage embedding → pgvector, RAG, Source/Page citation.
 - **P1**: Claude Vision, Agent, MCP, Email Draft generation, Human confirmation, Mock Email (`EMAIL_MODE=mock`).
-- **P2**: Gmail OAuth, real Gmail API, Activity Log, UI polish, error handling, RAG evaluation.
+- **P2**: Gmail OAuth, real Gmail API, Activity Log, UI polish, error handling, RAG evaluation. (Gmail OAuth/API landed as a post-Day-5 follow-up — see "Gmail OAuth implementation notes" below.)
 
 Mirrors the five-day plan in §37 (this project is being built ahead of a specific job interview, so the schedule assumes 5 dedicated days, not 3): Day 1 = Docker/React/FastAPI scaffold + Supabase (Auth/Postgres/Storage) + Google Login + Project CRUD + membership-only authorization. Day 2 = PDF → chunking → Voyage embedding → pgvector → RAG + citations (budget extra time here — Chinese engineering PDFs with tables/drawings often extract poorly). Day 3 = Claude Vision + Agent tool-selection logic + MCP server (search_documents, send_email) — the MCP SDK is the least-familiar piece, keep the tool wrappers minimal rather than polishing protocol details. Day 4 = Email draft + Preview + Confirm/Send + mock email (get mock working first), then Gmail OAuth. Day 5 = buffer — finish or abandon Gmail OAuth (mock email is an acceptable fallback), polish, and run the full demo end-to-end 3-5 times until it reproduces without live debugging.
 
@@ -76,7 +76,9 @@ Actual structure (spec2.md §33, as built):
 frontend/            React + Vite + Tailwind
   src/
     App.jsx, main.jsx, index.css
-    pages/           Login.jsx (Google + Email/Password), Projects.jsx, ProjectDetail.jsx
+    pages/           Login.jsx (Google + Email/Password), Projects.jsx, ProjectDetail.jsx,
+                      Settings.jsx (Gmail OAuth follow-up -- Connect/Disconnect Gmail, the one
+                      account-level, non-project-scoped page)
     components/      Button/Input/Alert/Card/Badge/EmptyState/Tabs/Header/PageShell/Spinner,
                       DocumentsPanel.jsx, ChatPanel.jsx (Day 2), VisionPanel.jsx, AgentPanel.jsx (Day 3),
                       EmailPreviewCard.jsx (Day 4, rendered inline inside AgentPanel -- no Email tab),
@@ -86,26 +88,30 @@ frontend/            React + Vite + Tailwind
 backend/app/
   main.py
   api/               auth.py, projects.py, documents.py, chat.py, vision.py, agent.py, email.py (Day 4),
-                      activity.py (Day 5)
+                      activity.py (Day 5), gmail.py (Gmail OAuth follow-up -- authorize-url/callback/status/disconnect,
+                      account-level, not project-scoped)
   core/              config.py, database.py (SQLAlchemy engine/session),
                       auth.py (JWKS verification), authorization.py,
                       supabase_client.py (Storage/Auth-admin only)
   models/            SQLAlchemy ORM: project.py, document.py, conversation.py, email_log.py, vision.py (Day 3),
-                      activity_log.py (Day 5)
+                      activity_log.py (Day 5), gmail_credential.py (Gmail OAuth follow-up)
   schemas/           project.py, document.py (Pydantic; Document/Chat/Conversation/Message),
                       vision.py, agent.py (Day 3), email.py (Day 4), activity.py (Day 5)
   services/          pdf_service.py (extract/chunk), embedding_service.py (Voyage),
                       claude_service.py (RAG + Vision + summary + email draft generation),
                       rag_service.py (ingest/retrieve orchestration), vision_service.py (Day 3),
                       email_service.py (Day 4 -- save_draft/generate_preview/confirm_and_send),
-                      activity_service.py (Day 5 -- log_activity helper)
+                      activity_service.py (Day 5 -- log_activity helper),
+                      gmail_service.py (Gmail OAuth follow-up -- OAuth code exchange/refresh/send,
+                      raw httpx against Google's endpoints, no google-api-python-client)
   agent/             agent_service.py (Day 3 -- process_request/select_tools/execute_workflow,
                      hand-rolled Claude tool-use loop, no framework; Day 4 added the draft_email
                      branch, see "Day 4 implementation notes")
   mcp/               server.py, client.py, tools/{search_documents,send_email}.py (Day 3 scaffold,
-                     send_email.py's real mock-mode logic landed Day 4 --
+                     send_email.py's real mock-mode logic landed Day 4, real Gmail-mode branch landed
+                     in the Gmail OAuth follow-up --
                      ships into backend/Dockerfile.mcp, a second image from the same build context)
-  alembic/           env.py, versions/0001_initial_schema.py .. 0004_activity_logs.py
+  alembic/           env.py, versions/0001_initial_schema.py .. 0005_gmail_credentials.py
   alembic.ini
 backend/scripts/     eval_rag.py + rag_eval_fixture.json (Day 5, spec2.md §38 -- standalone, not pytest;
                      mounted into the backend container via its own docker-compose.yml volume line)
@@ -126,6 +132,8 @@ Core tables: `projects`, `project_members` (role: owner/member), `documents` (st
 
 `activity_logs` (Day 5 addition, backing spec2.md §29's Activity Log): `id`, `project_id` (nullable -- `NULL` only for the `user_logged_in` event, which has no project context), `user_id`, `event_type` (`CheckConstraint`-enforced to the 11 values in spec2.md §29's workflow chain), `detail` (free text -- recipient/filename only, never email body/subject or API keys, per the no-full-email-content logging rule below), `created_at`. See "Day 5 implementation notes" below for the plain-function design (`activity_service.log_activity`) and the exact call sites.
 
+`gmail_credentials` (Gmail OAuth follow-up addition, not in spec2.md §9): `user_id` (primary key, bare Supabase UUID, no FK -- same no-local-users-table pattern as `project_members.user_id`), `gmail_email` (nullable, best-effort), `encrypted_refresh_token` (Fernet ciphertext, never plaintext), `created_at`/`updated_at`. One row per user -- connecting again overwrites the prior credential rather than supporting multiple linked Gmail accounts. Deliberately **not** logged in `activity_logs` (connect/disconnect aren't part of spec2.md §29's 11-value event chain, and adding event types would mean altering that table's `CheckConstraint`).
+
 ## Key API endpoints (spec2.md §27)
 
 ```
@@ -145,6 +153,10 @@ POST /api/projects/{project_id}/agent
 POST /api/projects/{project_id}/email/preview  -- Day 4
 POST /api/projects/{project_id}/email/send     -- Day 4, must go through the MCP tool, never bypass MCP
 GET  /api/projects/{project_id}/activity       -- Day 5 addition beyond spec2.md §27, backs the Activity tab
+GET  /api/gmail/authorize-url                  -- Gmail OAuth follow-up, account-level (not project-scoped)
+GET  /api/gmail/callback                       -- Google's redirect target; no auth dependency, see notes below
+GET  /api/gmail/status
+POST /api/gmail/disconnect
 GET  /api/health
 ```
 
@@ -214,7 +226,7 @@ Verified end-to-end with a real headless-browser session (Playwright, driven man
 
 6. **No new "Email" tab.** spec2.md §28's own Project Page mockup lists only `Documents │ Chat │ Vision │ Activity` — Email Preview is drawn as a card, not a tab, and §24's flow diagram starts at "User → Agent". The Preview (§25's exact To/Subject/Body/Cancel/Confirm & Send layout) renders inline inside `AgentPanel.jsx` whenever a tool call's `tool === 'draft_email'` is found. Cancel is client-side only (no `cancelled` status is ever written) — the `draft` row is harmless history, and there's no cancel/delete endpoint in spec2.md §27's Email section to call anyway.
 
-7. **Scope stops at Mock Email.** `app/mcp/tools/send_email.py` now branches on `EMAIL_MODE`: `"mock"` logs and returns `status: "sent"`; anything else returns `status: "failed"` with an explanatory message, rather than pretending to send. Real Gmail OAuth (spec2.md §26) is a deliberately separate, not-yet-started follow-up — see "Email execution path" below, now updated to match.
+7. **Scope stops at Mock Email (at the time).** `app/mcp/tools/send_email.py` branched on `EMAIL_MODE`: `"mock"` logs and returns `status: "sent"`; anything else returned `status: "failed"` with an explanatory message, rather than pretending to send. Real Gmail OAuth (spec2.md §26) was a deliberately separate follow-up at the time — since built, see "Gmail OAuth implementation notes" below.
 
 ## Day 5 implementation notes
 
@@ -238,6 +250,32 @@ Priority for Day 5 (buffer day, spec2.md §37) was: RAG Evaluation → Activity 
 
 9. **A real, live-testing-only bug: the Agent could claim it revised an email draft without ever calling `draft_email` again**, silently breaking the Email Preview's human-in-the-loop guarantee (§24) that what's shown before Confirm & Send is what actually gets sent. Reproduced live: asking the Agent to "修改精簡一些" after an initial `draft_email` call produced a plausible-sounding assistant reply ("已重新產生精簡版 email 草稿...") with **no corresponding `tool` message in `messages`** — Claude never invoked the tool, it just narrated a fabricated outcome in text. Root cause: `process_request` only replays prior **plain-text** user/assistant messages across `/agent` requests (Day 3 note 8's design), never the actual `tool_use`/`tool_result` history — so on a follow-up turn Claude has no structural memory that the draft it's describing was ever the result of a real tool call, and nothing in `AGENT_SYSTEM_PROMPT` told it a revision request *must* trigger a fresh `draft_email` call rather than just a fresh sentence. Fixed with an explicit prompt instruction: any request to modify/shorten/reword an already-generated draft must re-invoke `draft_email`, because the Preview card only ever reflects an actual tool call's output, and a stale card left on screen would send the wrong content if confirmed. Verified by directly reproducing the exact draft → "修改精簡一些" sequence via `agent_service.process_request` before and after the fix (before: turn 2's `tool_calls` was empty; after: `['draft_email']`). Also confirmed real `AgentPanel.jsx` behavior while investigating: each `draft_email` tool call renders its own independent `EmailPreviewCard` scoped to its own `email_log_id` (no cross-send risk between multiple drafts in one conversation), and the panel auto-scrolls to the newest message on every turn, which was judged sufficient mitigation against accidentally confirming a superseded still-visible draft card — deliberately did not add auto-cancel/gray-out logic for older cards, since `email_logs` has no `conversation_id` column and a same-conversation heuristic can't reliably distinguish "this is a revision" from "this is a second, unrelated email."
 
+## Gmail OAuth implementation notes
+
+Post-Day-5 follow-up, picking up spec2.md §26 where Day 5 left it (`EMAIL_MODE=mock` was the accepted stopping point, not unfinished work — see Day 5's intro paragraph above). Built against spec2.md §37's already-decided approach: an independent Gmail-only OAuth flow, never extending Supabase Auth's login scope. Verified end-to-end for real: 78/78 backend tests pass (16 new/changed for Gmail), a real browser session connected a real Gmail account via Settings, the Agent's `draft_email` → Confirm & Send → MCP `send_email` path sent a real email that arrived in the inbox, `gmail_credentials.encrypted_refresh_token` was confirmed to be Fernet ciphertext (not a plaintext `1//...` refresh token) by direct DB inspection, and `mcp-server`'s logs were confirmed to print only `to`/`subject`/`status` — never the body or any token.
+
+1. **No Google client libraries (`google-auth`/`google-auth-oauthlib`/`google-api-python-client`).** The whole flow is three HTTP calls — authorization-code exchange, refresh-token exchange, and the actual send — so `gmail_service.py` makes them directly with `httpx` (already a dependency) against `https://oauth2.googleapis.com/token` and `https://gmail.googleapis.com/gmail/v1/users/me/messages/send`. Pulling in a client SDK for three calls would violate CLAUDE.md rule #1 (don't over-engineer).
+
+2. **No access-token caching.** `gmail_credentials` stores only the encrypted refresh token (Fernet, key in `GMAIL_TOKEN_ENCRYPTION_KEY`) — every send does one refresh→access-token exchange immediately before sending. Sending only happens after an explicit human "Confirm & Send" click, so it's never a hot path; the extra round trip avoids an `access_token`/`expires_at` column and "is it still valid" logic entirely.
+
+3. **The OAuth callback has no `get_current_user` dependency, unlike every other route in this codebase.** Google's redirect back to `GET /api/gmail/callback` is a top-level browser navigation with no `Authorization` header — there is no JWT to check. Identity is instead recovered from a short-lived (5 minute) signed `state` JWT (`gmail_service.make_state`/`verify_state`, HS256, `{"sub": user_id, "exp": ...}`) generated when the user clicks "連接 Gmail" and verified when Google redirects back — this is standard OAuth CSRF protection, not a rule #6 violation (`user_id` in `state` is Backend-generated and Backend-signed, never client-supplied). The signing key reuses `GMAIL_CLIENT_SECRET` rather than a dedicated secret — a conscious choice (one fewer env var) since `state` is only ever a 5-minute nonce, not a long-lived credential.
+
+4. **`gmail_email` (the connected account's address, shown on the Settings page) is fetched best-effort from `GET .../gmail/v1/users/me/profile` right after the token exchange, and its failure is non-fatal.** **Empirically confirmed during manual end-to-end testing: the `gmail.send`-only scope does NOT authorize that endpoint** — a real connect flow stored a valid, working refresh token (send succeeded) with `gmail_email=NULL` in the `gmail_credentials` row, because the profile call failed and was caught as designed. The Settings page just shows "已連接" with no address in this case — accept this as the permanent behavior. **Do not widen the OAuth scope** (e.g. adding `userinfo.email`) just to populate this field; that would be scope creep beyond spec2.md §26's exact `gmail.send` grant, for a cosmetic detail.
+
+5. **One Gmail account per Supabase user, by construction.** `gmail_credentials.user_id` is the primary key (no separate `id`, same bare-UUID-no-FK pattern as `project_members.user_id` — see "Implementation notes beyond the spec" note 1). Reconnecting overwrites the previous row rather than supporting multiple linked accounts — matches the Settings page literally offering one Connect/Disconnect toggle, not an account list.
+
+6. **`send_email`'s MCP tool signature gained a required `user_id` parameter** (`app/mcp/server.py`, `app/mcp/tools/send_email.py`) — Gmail mode needs to know whose credential to use, and MCP has no session/JWT context of its own (see "Target architecture" above). `email_service.confirm_and_send` already had `user_id` in scope (Day 5 note 5) and now threads it into the MCP call arguments. `gmail_service.send_email` is written to **never raise** — any `httpx` failure (expired/revoked refresh token, network error, Gmail API rejection) is caught and turned into `{"status": "failed", "message": ...}`, because its only caller depends on that exact shape and a raised exception would otherwise surface as an unhandled 502 instead of a clean "寄送失敗" in the Email Preview card.
+
+7. **No new Activity Log event types.** Connecting/disconnecting Gmail isn't part of spec2.md §29's 11-value event chain, and `activity_logs.event_type` is `CheckConstraint`-enforced to exactly those 11 — adding Gmail events would mean a schema migration for what's arguably account settings, not a project workflow step. Deliberately skipped; `/api/gmail/*` routes never call `log_activity`.
+
+8. **Settings page is the one account-level (non-project-scoped) page in the frontend.** Every other route hangs off `/projects` or `/projects/:id`; `/settings` doesn't take a `project_id` because a Gmail connection belongs to the user, not any one project. Reached via a "設定" button added to both `Projects.jsx`'s and `ProjectDetail.jsx`'s header actions (next to 登出) — `Header.jsx` itself stayed a pure presentational shell rather than growing a nav menu for one new link.
+
+9. **Real Gmail OAuth requires external, out-of-band setup before it can be tested at all**: a Google Cloud Console project with an OAuth consent screen (Testing status is enough — add the test Google account as a test user), a **second** OAuth Client ID separate from whatever Supabase's own Google login provider uses (Authorized redirect URI must exactly equal `GMAIL_REDIRECT_URI`), and the Gmail API enabled on that project. None of this can be done by editing code — see `.env.example`'s `GMAIL_*` block for what to fill in. This setup was completed and `EMAIL_MODE=gmail` is live in `.env` as of this follow-up (`.env` stays out of git per rule #5 either way).
+
+## Agent robustness fix (post-Day-5, found during Gmail OAuth live testing)
+
+A real, live-testing-only bug, unrelated to Gmail: asking the Agent to summarize a pasted screenshot **filename** (typed as plain text in the Agent chat, not an actual upload — Vision requires uploading via the Vision tab first) made Claude call `analyze_image` with `image_id` set to that filename string instead of leaving it blank. `_lookup_vision_analysis` (`app/agent/agent_service.py`) passed that straight into `VisionAnalysis.id == image_id`, and since that column is `UUID`, Postgres raised `psycopg.errors.InvalidTextRepresentation` — unhandled, so it propagated all the way up to `POST /agent`'s broad `except Exception` and surfaced as a generic "Agent 執行失敗" 502, giving no hint of the real cause. Fixed by validating `image_id` as a UUID before querying and returning the same kind of `{"error": ...}` tool output already used for "no image yet" (see Day 3 note 6) when it isn't — Claude sees the failure and can ask the user to upload an image first, instead of the whole turn blowing up. `tests/test_agent.py::test_agent_analyze_image_with_non_uuid_image_id_fails_cleanly` pins this.
+
 ## LLM / embedding providers
 
 Unlike the earlier draft, `spec2.md` does **not** ask for a swappable multi-provider abstraction: Claude API is the fixed LLM/Vision provider, Voyage AI is the fixed embedding provider (§5–6, §41). Still isolate them behind `claude_service.py` / `embedding_service.py` so provider-specific details don't leak into `rag_service.py` or `agent_service.py` — but don't build a `LLM_PROVIDER=gemini|anthropic` switch; that abstraction was dropped in this spec version.
@@ -250,14 +288,15 @@ Two independent OAuth concerns, per §11 above and `spec2.md` §26 — do not bu
 
 ```
 Supabase Auth (Google login, app identity)         ──unrelated to──►  Gmail OAuth (gmail.send scope, execution)
-                                                                              │
+                                                                              │ authorize-url / callback / status / disconnect
+                                                                              │ (app/api/gmail.py, app/services/gmail_service.py)
                                                                               ▼
                                                         MCP send_email() → Gmail API
 ```
 
-The mock-mode path (`EMAIL_MODE=mock`, `app/mcp/tools/send_email.py` logs `[MOCK EMAIL] to=... subject=...` — never the body, per the no-full-email-content logging rule below — and returns `status: "sent"`) is built and verified as of Day 4; see "Day 4 implementation notes" above. `email_send` always goes through the MCP tool — never call Gmail API directly from an API route; `email_service.confirm_and_send` (`app/services/email_service.py`) is the only caller of `mcp_client.call_tool("send_email", ...)`, itself only reachable from `POST /email/send`, itself only reachable from a user's explicit "Confirm & Send" click.
+The mock-mode path (`EMAIL_MODE=mock`, default — `app/mcp/tools/send_email.py` logs `[MOCK EMAIL] to=... subject=...` — never the body, per the no-full-email-content logging rule below — and returns `status: "sent"`) is built and verified as of Day 4; see "Day 4 implementation notes" above. `email_send` always goes through the MCP tool — never call Gmail API directly from an API route; `email_service.confirm_and_send` (`app/services/email_service.py`) is the only caller of `mcp_client.call_tool("send_email", ...)`, itself only reachable from `POST /email/send`, itself only reachable from a user's explicit "Confirm & Send" click.
 
-**Real Gmail OAuth is not yet built.** A non-mock `EMAIL_MODE` currently makes `send_email.py` return `status: "failed"` cleanly rather than attempting anything — no Gmail client/service file exists anywhere in the codebase yet, and `GMAIL_CLIENT_ID`/`GMAIL_CLIENT_SECRET`/`GMAIL_REDIRECT_URI` are declared in `config.py` but unused. Per spec2.md §37's own risk-reduction note, this is an acceptable place to stop for the MVP demo (mock email is a legitimate fallback) — pick up real Gmail OAuth as a separate follow-up, choosing one of the two approaches in §26 explicitly before implementing (don't assume which one without deciding first).
+**Real Gmail OAuth (`EMAIL_MODE=gmail`) is now built** — see "Gmail OAuth implementation notes" below for the full design (raw-httpx OAuth client, per-user `gmail_credentials` row, `/api/gmail/*` routes, `Settings.jsx`). `EMAIL_MODE=mock` stays the default and remains a fully supported fallback when the four `GMAIL_*` env vars aren't configured — this was never an either/or.
 
 ## Security minimums (spec2.md §32)
 

@@ -92,9 +92,30 @@ def test_send_email_tool_mock_mode_returns_sent(monkeypatch):
 
 
 def test_send_email_tool_non_mock_mode_fails_cleanly(monkeypatch):
-    # Real Gmail sending isn't wired up yet -- a non-mock EMAIL_MODE must
-    # fail rather than silently pretending to send.
+    # Gmail mode requires a user_id (there's no one to send on behalf of
+    # otherwise) -- missing it must fail rather than silently pretending to
+    # send.
     monkeypatch.setattr("app.mcp.tools.send_email.EMAIL_MODE", "gmail")
+
+    result = send_email.run("pm@example.com", "subject", "body")
+
+    assert result["status"] == "failed"
+
+
+def test_send_email_tool_gmail_mode_delegates_to_gmail_service(monkeypatch, alice):
+    monkeypatch.setattr("app.mcp.tools.send_email.EMAIL_MODE", "gmail")
+    monkeypatch.setattr(
+        "app.services.gmail_service.send_email",
+        lambda db, user_id, to, subject, body: {"status": "sent", "message": f"sent to {to}"},
+    )
+
+    result = send_email.run("pm@example.com", "subject", "body", user_id=alice["id"])
+
+    assert result == {"status": "sent", "message": "sent to pm@example.com"}
+
+
+def test_send_email_tool_unknown_mode_fails_cleanly(monkeypatch):
+    monkeypatch.setattr("app.mcp.tools.send_email.EMAIL_MODE", "something-else")
 
     result = send_email.run("pm@example.com", "subject", "body")
 

@@ -99,11 +99,20 @@ def select_tools(messages: list[dict]):
 
 def _lookup_vision_analysis(db: Session, project_id: str, image_id: str | None) -> dict:
     query = db.query(VisionAnalysis).filter(VisionAnalysis.project_id == project_id)
-    record = (
-        query.filter(VisionAnalysis.id == image_id).first()
-        if image_id
-        else query.order_by(VisionAnalysis.created_at.desc()).first()
-    )
+    if image_id:
+        try:
+            uuid.UUID(image_id)
+        except ValueError:
+            # Claude sometimes passes a filename or other non-UUID text as
+            # image_id instead of leaving it blank -- querying with that
+            # directly raises an unhandled psycopg.InvalidTextRepresentation
+            # (the id column is UUID) that used to bubble up as a 502 for
+            # the whole /agent request. Fail gracefully as a tool error
+            # instead, so Claude can ask the user to clarify.
+            return {"error": "找不到指定的圖片，請留空 image_id 以使用最新上傳的圖片。"}
+        record = query.filter(VisionAnalysis.id == image_id).first()
+    else:
+        record = query.order_by(VisionAnalysis.created_at.desc()).first()
     if not record:
         return {"error": "尚未有已分析的工程圖片，請先在 Vision 分頁上傳並分析圖片。"}
     return {

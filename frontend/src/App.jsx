@@ -4,6 +4,7 @@ import { useSession } from './hooks/useSession'
 import Login from './pages/Login'
 import ProjectDetail from './pages/ProjectDetail'
 import Projects from './pages/Projects'
+import Settings from './pages/Settings'
 
 function RequireAuth({ children }) {
   const { session, loading } = useSession()
@@ -35,6 +36,14 @@ export default function App() {
         element={
           <RequireAuth>
             <ProjectDetail />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/settings"
+        element={
+          <RequireAuth>
+            <Settings />
           </RequireAuth>
         }
       />

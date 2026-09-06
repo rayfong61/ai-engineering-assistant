@@ -1,4 +1,4 @@
-import { Activity, ArrowLeft, Bot, FileText, Image, LogOut, MessageSquare } from 'lucide-react'
+import { Activity, ArrowLeft, Bot, FileText, Image, LogOut, MessageSquare, Settings as SettingsIcon } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import ActivityPanel from '../components/ActivityPanel'
@@ -39,9 +39,19 @@ export default function ProjectDetail() {
   return (
     <PageShell
       headerActions={
-        <Button variant="ghost" size="sm" icon={<LogOut className="h-4 w-4" />} onClick={handleLogout}>
-          登出
-        </Button>
+        <div className="flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="sm"
+            icon={<SettingsIcon className="h-4 w-4" />}
+            onClick={() => navigate('/settings')}
+          >
+            設定
+          </Button>
+          <Button variant="ghost" size="sm" icon={<LogOut className="h-4 w-4" />} onClick={handleLogout}>
+            登出
+          </Button>
+        </div>
       }
     >
       <Link

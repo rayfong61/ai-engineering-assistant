@@ -34,6 +34,10 @@ EMAIL_MODE = os.getenv("EMAIL_MODE", "mock")
 GMAIL_CLIENT_ID = os.getenv("GMAIL_CLIENT_ID", "")
 GMAIL_CLIENT_SECRET = os.getenv("GMAIL_CLIENT_SECRET", "")
 GMAIL_REDIRECT_URI = os.getenv("GMAIL_REDIRECT_URI", "")
+# Symmetric key (Fernet) for encrypting gmail_credentials.encrypted_refresh_token
+# at rest -- generate with:
+# python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+GMAIL_TOKEN_ENCRYPTION_KEY = os.getenv("GMAIL_TOKEN_ENCRYPTION_KEY", "")
 
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
 
