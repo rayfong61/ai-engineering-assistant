@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"c:/Work/台灣世曦/ai-engineering-assistant/.claude/hooks/mcp_restart_hook.py\"",
+            "statusMessage": "Checking if mcp-server needs a restart...",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}
