@@ -4,6 +4,7 @@ import { apiGet, apiPost } from '../lib/api'
 import Alert from './Alert'
 import Button from './Button'
 import ConversationList from './ConversationList'
+import MarkdownContent from './MarkdownContent'
 import Spinner from './Spinner'
 
 export default function ChatPanel({ projectId }) {
@@ -14,6 +15,7 @@ export default function ChatPanel({ projectId }) {
   const [error, setError] = useState(null)
   const [refreshKey, setRefreshKey] = useState(0)
   const bottomRef = useRef(null)
+  const textareaRef = useRef(null)
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -49,6 +51,7 @@ export default function ChatPanel({ projectId }) {
 
     setMessages((prev) => [...prev, { role: 'user', content: question }])
     setInput('')
+    if (textareaRef.current) textareaRef.current.style.height = 'auto'
     setSending(true)
     setError(null)
 
@@ -97,11 +100,13 @@ export default function ChatPanel({ projectId }) {
               {messages.map((msg, i) => (
                 <div key={i} className={msg.role === 'user' ? 'text-right' : 'text-left'}>
                   <div
-                    className={`inline-block max-w-[85%] rounded-card px-3 py-2 text-sm whitespace-pre-wrap ${
-                      msg.role === 'user' ? 'bg-brand-600 text-white' : 'bg-slate-100 text-slate-900'
+                    className={`inline-block max-w-[85%] rounded-card px-3 py-2 ${
+                      msg.role === 'user'
+                        ? 'bg-brand-600 text-sm whitespace-pre-wrap text-white'
+                        : 'bg-slate-100 text-slate-900'
                     }`}
                   >
-                    {msg.content}
+                    {msg.role === 'user' ? msg.content : <MarkdownContent content={msg.content} />}
                   </div>
                   {msg.sources?.length > 0 && (
                     <div className="mt-1 flex flex-wrap justify-start gap-1.5">
@@ -124,13 +129,25 @@ export default function ChatPanel({ projectId }) {
           )}
         </div>
 
-        <form onSubmit={handleSend} className="flex gap-2 border-t border-slate-200 p-3">
-          <input
+        <form onSubmit={handleSend} className="flex items-end gap-2 border-t border-slate-200 p-3">
+          <textarea
+            ref={textareaRef}
             value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder="輸入問題..."
-            className="flex-1 rounded-card border border-slate-300 px-3 py-2 text-sm text-slate-900
-              placeholder:text-slate-400 focus-visible:border-brand-500"
+            onChange={(e) => {
+              setInput(e.target.value)
+              e.target.style.height = 'auto'
+              e.target.style.height = `${Math.min(e.target.scrollHeight, 150)}px`
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault()
+                handleSend(e)
+              }
+            }}
+            placeholder="輸入問題...（Shift+Enter 換行）"
+            rows={1}
+            className="max-h-[150px] flex-1 resize-none rounded-card border border-slate-300 px-3 py-2 text-sm
+              text-slate-900 placeholder:text-slate-400 focus-visible:border-brand-500"
           />
           <Button type="submit" loading={sending} icon={<Send className="h-4 w-4" />}>
             送出
