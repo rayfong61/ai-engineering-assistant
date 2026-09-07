@@ -17,24 +17,24 @@ Google 登入 → 建立專案 → 上傳工程 PDF/圖片 → RAG 問答 → Vi
 - **Human-in-the-Loop** — Agent 只能產生 Email 草稿，永遠不能自己寄出；使用者在 Preview 畫面看到 To/Subject/Body 後，必須明確點擊 Confirm & Send 才會透過 MCP 呼叫寄信。
 - **多租戶授權** — Project 是資料隔離單位，每個請求都從 JWT 解析身份、檢查 `project_members`，向量檢索一律加 `project_id` 過濾，不會跨專案洩漏資料。
 - **Activity Log** — 11 個關鍵工作流程節點（登入、上傳、embedding、RAG 檢索、Vision 分析、摘要生成、Email 草稿/確認/寄出）都會留下可追溯的紀錄。
+- **真實 Gmail 寄送** — 獨立於登入用 Google OAuth 的第二組 Gmail-only OAuth（`gmail.send` scope），使用者在 Settings 頁面連接自己的 Gmail 帳號後，Confirm & Send 會透過 MCP 呼叫真正的 Gmail API 寄出（`EMAIL_MODE=gmail`）；未連接時自動走 `EMAIL_MODE=mock`（記錄寄送內容但不真的呼叫 Gmail API），兩種模式都完整支援，不是互斥的取捨。
 
 ## 刻意不做的取捨
 
-- **Gmail OAuth 未實作**，Email 固定走 `EMAIL_MODE=mock`（記錄寄送內容但不真的呼叫 Gmail API）。這是刻意的風險控管：demo 要證明的是 Human-in-the-Loop 確認機制本身，不是「真的把信寄出去」，真寄信需要額外一組獨立的 Gmail-only OAuth（跟登入用的 Google OAuth 是兩回事），列為之後有時間再做的項目。
 - **文件上傳只支援 PDF**，圖片只支援 JPG/PNG/WEBP，沒有 Word/Excel 等格式——超出 MVP 範圍。
 - **授權只做「是否為專案成員」的檢查**，沒有做 owner/member 權限差異化（`role` 欄位保留，之後可以擴充）。
 - **不使用 LangChain/LangGraph 等 Agent 框架**，Tool-use 迴圈是手刻的簡單迴圈——換取的是完全掌控 Prompt 與工具邊界（例如結構性保證 Agent 不會呼叫真正的寄信工具），而不是框架的便利性。
 
-## 建置過程（Day 1-5，均已對真實資料端對端驗證，非僅單元測試）
+## 建置過程（Day 1-5 + Gmail OAuth follow-up，均已對真實資料端對端驗證，非僅單元測試）
 
 - [x] **Day 1** — Docker Compose、Supabase Auth（Google + Email/Password）、Project CRUD、`project_members` membership-only 授權
 - [x] **Day 2** — PDF 上傳 → Supabase Storage → PyMuPDF 抽取 → 分塊 → Voyage Embedding → pgvector → Claude 生成答案（含來源文件＋頁碼引用）
 - [x] **Day 3** — Claude Vision、Agent 工具選擇迴圈、MCP server（`search_documents`、`send_email`）
 - [x] **Day 4** — Email 草稿生成、Preview 卡片、Confirm & Send、Mock Email
 - [x] **Day 5** — Activity Log、RAG Evaluation（94% 檢索準確率）、error handling 補強
-- [ ] Gmail OAuth（見上方「刻意不做的取捨」）
+- [x] **Gmail OAuth follow-up** — 真實 Gmail API 寄送、Settings 頁面 Connect/Disconnect、encrypted refresh token（Fernet）
 
-自動化測試：`backend/tests/`，56 個測試全過（`docker compose exec backend python -m pytest -v`）。
+自動化測試：`backend/tests/`，78 個測試全過（`docker compose exec backend python -m pytest -v`）。
 
 ## 架構筆記
 
@@ -83,9 +83,12 @@ Supabase 用 **ES256 非對稱簽章**簽發使用者 session token（不是舊�
 - **Google 登入**：正式 demo 用，需要在 Supabase 設定 Google provider。
 - **Email/Password**：本地開發/測試用，前端 Login 頁面內建表單，不需要任何外部 OAuth 設定。
 
-### Email 寄送：兩組完全獨立的 OAuth，且 Gmail 那組尚未實作
+### Email 寄送：兩組完全獨立的 OAuth
 
-Supabase Auth 的 Google 登入（scope: openid/email/profile）跟 Gmail 寄信（scope: `gmail.send`）是**兩個獨立的 OAuth 授權**，不要假設登入的 token 可以拿來寄信。目前只有 `EMAIL_MODE=mock` 這條路可用：`app/mcp/tools/send_email.py` 會記錄 `[MOCK EMAIL] to=... subject=...`（不記完整內文）並回傳 `status: "sent"`；任何非 `mock` 的 `EMAIL_MODE` 會乾淨地回傳 `status: "failed"`，因為 Gmail client 尚未實作，`GMAIL_CLIENT_ID`/`GMAIL_CLIENT_SECRET`/`GMAIL_REDIRECT_URI` 目前只是預留變數。
+Supabase Auth 的 Google 登入（scope: openid/email/profile）跟 Gmail 寄信（scope: `gmail.send`）是**兩個獨立的 OAuth 授權**，不要假設登入的 token 可以拿來寄信——這是刻意的架構決策（spec2.md §26/§37），不是偷懶少做一半。
+
+- `EMAIL_MODE=mock`（預設，且永遠完整支援的 fallback）：`app/mcp/tools/send_email.py` 記錄 `[MOCK EMAIL] to=... subject=...`（不記完整內文）並回傳 `status: "sent"`，不需要任何 Gmail 設定。
+- `EMAIL_MODE=gmail`：真的透過 Gmail API 寄信。使用者在 Settings 頁面連接自己的 Gmail 帳號（`/api/gmail/authorize-url` → Google 同意畫面 → `/api/gmail/callback`），refresh token 用 Fernet 加密存進 `gmail_credentials`，每次寄送前才即時換取 access token（不快取）。純 `httpx` 打 Google 的三支 API（授權碼交換、refresh 交換、實際寄送），沒有引入 `google-api-python-client` 之類的 client SDK。需要 `GMAIL_CLIENT_ID`/`GMAIL_CLIENT_SECRET`/`GMAIL_REDIRECT_URI`/`GMAIL_TOKEN_ENCRYPTION_KEY` 四個變數（見下方「前置設定」），且這組 OAuth Client 必須是跟登入用 Google Provider **不同**的 Client ID。
 
 ## 前置設定
 
@@ -100,7 +103,7 @@ cp .env.example .env
 - `DATABASE_URL`、`SUPABASE_URL`、`SUPABASE_ANON_KEY`、`SUPABASE_SERVICE_ROLE_KEY`、`VITE_SUPABASE_URL`、`VITE_SUPABASE_ANON_KEY`（見下方「2. 雲端 Supabase 專案」）
 - `ANTHROPIC_API_KEY`（Claude — RAG 生成答案、Vision、Agent、Email 草稿都要用）
 - `VOYAGE_API_KEY`（Voyage AI — PDF 分塊後的 embedding，Day 2 起必填，否則上傳 PDF 會索引失敗）
-- `EMAIL_MODE=mock`（目前唯一可用的模式）
+- `EMAIL_MODE=mock`（預設值，不需要任何 Gmail 設定就能跑完整 demo；要真的寄信才需要填下面四個 `GMAIL_*` 變數並設成 `EMAIL_MODE=gmail`，見上方「Email 寄送」一節）
 
 想改跑本地 Supabase CLI stack 的話，見上方「切換 local / 雲端環境」，改用 `cp .env.local .env` 再跑第 3 步的 `npx supabase start`。
 
@@ -130,7 +133,7 @@ npx supabase status   # 忘記剛才印出的值時，重新查詢
 1. 在 Google Cloud Console 建立一個 OAuth 2.0 Client（Web application）。
 2. Redirect URI 填 Supabase Dashboard（本地是 `npx supabase status` 印出的 Studio URL，雲端是 Project Dashboard）→ Authentication → Providers → Google 頁面上提供的 callback URL。
 3. 把 Client ID / Secret 貼進該頁面並啟用。
-4. **這組登入用的 OAuth 跟 Gmail 寄信是完全獨立的兩件事**，不要共用同一組 client／token。Gmail 寄信的 OAuth 尚未實作，目前用 `EMAIL_MODE=mock`。
+4. **這組登入用的 OAuth 跟 Gmail 寄信是完全獨立的兩件事**，不要共用同一組 client／token。要真的寄信（`EMAIL_MODE=gmail`）需要另外在 Google Cloud Console 建**第二個** OAuth Client，scope 只要 `gmail.send`，Authorized redirect URI 要精確等於 `GMAIL_REDIRECT_URI`（例如 `http://localhost:8000/api/gmail/callback`），並在該 Google Cloud 專案啟用 Gmail API——這組設定跟這裡的登入 Google Provider 完全分開。不想處理這段的話，`EMAIL_MODE=mock` 是完整支援、不需要任何額外設定的預設值。
 
 本地開發不想設定 Google OAuth 的話，直接用前端 Login 頁面的 Email/Password 表單即可，不受影響。
 
