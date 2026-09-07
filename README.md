@@ -41,6 +41,10 @@ Google 登入 → 建立專案 → 上傳工程 PDF/圖片 → RAG 問答 → Vi
 ![Email Preview 卡片下方的 Confirm & Send 按鈕](data/demo_pics/agent-confirm-send.png)
 必須使用者手動點擊 Confirm & Send，才會透過 MCP 呼叫 Gmail API 真正送出——這是整個專案的核心 Human-in-the-Loop 設計。
 
+**查無資料時誠實說明，不臆測**
+![Agent 對「台灣高鐵月台設計規範」的提問誠實回覆知識庫沒有相關資料](data/demo_pics/agent-honest-no-data.png)
+問了知識庫裡沒有的「台灣高鐵月台設計規範」，Agent 呼叫 `search_documents` 後如實說明查無直接相關資料、列出知識庫實際收錄的內容，並主動釐清使用者是否問錯了對象——不會硬套 T3 的文件充當答案。
+
 ## 刻意不做的取捨
 
 - **文件上傳只支援 PDF**，圖片只支援 JPG/PNG/WEBP，沒有 Word/Excel 等格式——超出 MVP 範圍。
