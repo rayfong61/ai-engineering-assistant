@@ -23,7 +23,14 @@ def run_agent(
 ):
     require_project_member(db, project_id, user)
     try:
-        return agent_service.process_request(db, project_id, user, payload.conversation_id, payload.message)
+        return agent_service.process_request(
+            db,
+            project_id,
+            user,
+            payload.conversation_id,
+            payload.message,
+            image_id=str(payload.image_id) if payload.image_id else None,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except Exception as exc:

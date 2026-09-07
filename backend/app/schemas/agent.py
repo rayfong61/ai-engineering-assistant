@@ -8,6 +8,7 @@ from app.schemas.document import SourceOut
 class AgentRequest(BaseModel):
     conversation_id: uuid.UUID | None = None
     message: str
+    image_id: uuid.UUID | None = None
 
 
 class AgentToolCallOut(BaseModel):

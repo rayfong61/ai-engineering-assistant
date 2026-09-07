@@ -49,6 +49,12 @@ class MessageSourceOut(BaseModel):
     page: int | None
 
 
+class MessageImageOut(BaseModel):
+    image_id: uuid.UUID
+    filename: str
+    url: str | None = None  # None on signing failure, matches VisionAnalysisOut.image_url
+
+
 class MessageOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -57,6 +63,7 @@ class MessageOut(BaseModel):
     content: str
     created_at: datetime
     sources: list[MessageSourceOut] | None = None
+    image: MessageImageOut | None = None
 
 
 class ConversationDetailOut(ConversationOut):

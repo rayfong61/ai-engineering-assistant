@@ -13,15 +13,13 @@ from app.models import VisionAnalysis
 from app.schemas.vision import VisionAnalysisOut
 from app.services import vision_service
 from app.services.activity_service import log_activity
+from app.services.vision_service import SIGNED_URL_EXPIRES_IN, _signed_url_for
 
 router = APIRouter(prefix="/api/projects/{project_id}/vision", tags=["vision"])
 
 MAX_IMAGE_SIZE = 10 * 1024 * 1024
 EXTENSION_MEDIA_TYPES = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png", "webp": "image/webp"}
 ALLOWED_MEDIA_TYPES = set(EXTENSION_MEDIA_TYPES.values())
-# Long enough for a normal viewing session, short enough that a leaked URL
-# doesn't stay valid forever -- the bucket itself stays private either way.
-SIGNED_URL_EXPIRES_IN = 60 * 60
 
 
 def _ensure_bucket() -> None:
@@ -29,16 +27,6 @@ def _ensure_bucket() -> None:
         get_supabase().storage.create_bucket(STORAGE_BUCKET, options={"public": False})
     except Exception:
         pass  # bucket already exists
-
-
-def _signed_url_for(storage_path: str) -> str | None:
-    try:
-        result = get_supabase().storage.from_(STORAGE_BUCKET).create_signed_url(
-            storage_path, SIGNED_URL_EXPIRES_IN
-        )
-        return result["signedURL"]
-    except Exception:
-        return None  # best-effort, matches this file's other broad-except Storage handling
 
 
 def _signed_urls_for(records: list[VisionAnalysis]) -> dict[str, str]:

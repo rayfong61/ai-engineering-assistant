@@ -14,12 +14,14 @@ from app.schemas.document import (
     ChatResponse,
     ConversationDetailOut,
     ConversationOut,
+    MessageImageOut,
     MessageOut,
     MessageSourceOut,
     SourceOut,
 )
 from app.services import claude_service, embedding_service, rag_service
 from app.services.activity_service import log_activity
+from app.services.vision_service import _signed_url_for
 
 logger = logging.getLogger(__name__)
 
@@ -165,6 +167,15 @@ def get_conversation(
                 sources=(
                     [MessageSourceOut(**s) for s in m.metadata_["sources"]]
                     if m.metadata_ and m.metadata_.get("sources")
+                    else None
+                ),
+                image=(
+                    MessageImageOut(
+                        image_id=m.metadata_["image"]["image_id"],
+                        filename=m.metadata_["image"]["filename"],
+                        url=_signed_url_for(m.metadata_["image"]["storage_path"]),
+                    )
+                    if m.metadata_ and m.metadata_.get("image")
                     else None
                 ),
             )

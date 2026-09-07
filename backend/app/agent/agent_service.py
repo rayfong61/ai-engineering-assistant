@@ -187,7 +187,12 @@ def execute_workflow(
 
 
 def process_request(
-    db: Session, project_id: str, user: dict, conversation_id: uuid.UUID | None, message: str
+    db: Session,
+    project_id: str,
+    user: dict,
+    conversation_id: uuid.UUID | None,
+    message: str,
+    image_id: str | None = None,
 ) -> AgentResponse:
     if conversation_id:
         conversation = (
@@ -204,9 +209,36 @@ def process_request(
         db.add(conversation)
         db.flush()
 
+    image_record = None
+    if image_id:
+        # Independent, project_id-scoped lookup -- NOT a reuse of
+        # _lookup_vision_analysis (different return shape, no storage_path).
+        # A tampered/foreign-project/stale image_id just resolves to None,
+        # degrading to "no image attached" rather than leaking another
+        # project's file or erroring the whole /agent request.
+        image_record = (
+            db.query(VisionAnalysis)
+            .filter(VisionAnalysis.project_id == project_id, VisionAnalysis.id == image_id)
+            .first()
+        )
+
     db.add(
         Message(
-            conversation_id=conversation.id, user_id=uuid.UUID(user["id"]), role="user", content=message
+            conversation_id=conversation.id,
+            user_id=uuid.UUID(user["id"]),
+            role="user",
+            content=message,  # raw user text only -- never mutated
+            metadata_=(
+                {
+                    "image": {
+                        "image_id": str(image_record.id),
+                        "filename": image_record.filename,
+                        "storage_path": image_record.storage_path,
+                    }
+                }
+                if image_record
+                else None
+            ),
         )
     )
     db.flush()  # make the just-added user message visible to the history query below (autoflush=False)
@@ -222,6 +254,15 @@ def process_request(
         .all()
     )
     messages = [{"role": m.role, "content": m.content} for m in history]
+
+    if image_record:
+        # In-memory only, not persisted -- steers Claude to call the existing,
+        # unmodified analyze_image tool with a known-good id instead of the
+        # user having to type a filename it can't resolve.
+        messages[-1]["content"] += (
+            f"\n\n[使用者在此訊息上傳了一張圖片，image_id={image_record.id}。"
+            f'請先呼叫 analyze_image(image_id="{image_record.id}") 取得分析結果，再回答使用者的問題。]'
+        )
 
     state = AgentLoopState()
     final_text = None

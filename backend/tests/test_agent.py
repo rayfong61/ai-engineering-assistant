@@ -110,6 +110,106 @@ def test_agent_draft_email_persists_draft_but_never_calls_mcp(
     assert str(email_log.user_id) == alice["id"]
 
 
+def _image_bytes() -> bytes:
+    # Not a real decodable PNG -- fine, analyze_engineering_image is mocked
+    # below and the upload route never decodes the image itself (matches
+    # test_vision.py's own fixture).
+    return b"\x89PNG\r\n\x1a\nfake-png-bytes-for-testing"
+
+
+def test_agent_image_attachment_hints_claude_and_persists_metadata(
+    client, current_user_override, alice, db_session, monkeypatch
+):
+    monkeypatch.setattr(
+        "app.services.vision_service.analyze_engineering_image",
+        lambda *a, **k: {"analysis": "測試分析", "observations": [], "limitations": []},
+    )
+    current_user_override(alice)
+    project_id = client.post("/api/projects", json={"name": "T3"}).json()["id"]
+
+    upload = client.post(
+        f"/api/projects/{project_id}/vision",
+        files={"file": ("photo.png", _image_bytes(), "image/png")},
+    )
+    assert upload.status_code == 200
+    image_id = upload.json()["id"]
+
+    turns = iter(
+        [
+            _FakeMessage(content=[_tool_use_block("analyze_image", {"image_id": image_id})]),
+            _FakeMessage(content=[_text_block("這張圖片顯示...")], stop_reason="end_turn"),
+        ]
+    )
+    first_call_last_content = {}
+
+    def _fake_select_tools(messages):
+        # `messages` is the same list object mutated in place across the
+        # loop's later iterations -- snapshot the string content now, don't
+        # hold a reference to the list itself.
+        first_call_last_content.setdefault("value", messages[-1]["content"])
+        return next(turns)
+
+    monkeypatch.setattr("app.agent.agent_service.select_tools", _fake_select_tools)
+
+    response = client.post(
+        f"/api/projects/{project_id}/agent",
+        json={"message": "這張圖片重點是什麼", "image_id": image_id},
+    )
+    assert response.status_code == 200
+
+    # The hint steering Claude toward analyze_image(image_id=...) was
+    # appended to this turn's user message before the first Claude call.
+    assert f'analyze_image(image_id="{image_id}")' in first_call_last_content["value"]
+
+    analyze_call = next(tc for tc in response.json()["tool_calls"] if tc["tool"] == "analyze_image")
+    assert "error" not in analyze_call["output"]
+
+    user_message = (
+        db_session.query(Message)
+        .filter(Message.conversation_id == response.json()["conversation_id"], Message.role == "user")
+        .one()
+    )
+    assert user_message.metadata_["image"]["image_id"] == image_id
+    assert user_message.metadata_["image"]["filename"] == "photo.png"
+
+
+def test_agent_ignores_image_id_from_another_project(
+    client, current_user_override, alice, bob, db_session, monkeypatch
+):
+    # A stale/foreign image_id must degrade to "no image attached" -- never
+    # leak another project's filename/storage_path, never error the request.
+    monkeypatch.setattr(
+        "app.services.vision_service.analyze_engineering_image",
+        lambda *a, **k: {"analysis": "測試分析", "observations": [], "limitations": []},
+    )
+    current_user_override(bob)
+    other_project_id = client.post("/api/projects", json={"name": "Other"}).json()["id"]
+    upload = client.post(
+        f"/api/projects/{other_project_id}/vision",
+        files={"file": ("secret.png", _image_bytes(), "image/png")},
+    )
+    foreign_image_id = upload.json()["id"]
+
+    current_user_override(alice)
+    project_id = client.post("/api/projects", json={"name": "T3"}).json()["id"]
+
+    turns = iter([_FakeMessage(content=[_text_block("好的")], stop_reason="end_turn")])
+    monkeypatch.setattr("app.agent.agent_service.select_tools", lambda messages: next(turns))
+
+    response = client.post(
+        f"/api/projects/{project_id}/agent",
+        json={"message": "hello", "image_id": foreign_image_id},
+    )
+    assert response.status_code == 200
+
+    user_message = (
+        db_session.query(Message)
+        .filter(Message.conversation_id == response.json()["conversation_id"], Message.role == "user")
+        .one()
+    )
+    assert user_message.metadata_ is None
+
+
 def test_agent_analyze_image_with_non_uuid_image_id_fails_cleanly(
     client, current_user_override, alice, monkeypatch
 ):
