@@ -1,4 +1,14 @@
-import { Activity, ArrowLeft, Bot, FileText, Image, LogOut, MessageSquare, Settings as SettingsIcon } from 'lucide-react'
+import {
+  Activity,
+  ArrowLeft,
+  Bot,
+  FileText,
+  HelpCircle,
+  Image,
+  LogOut,
+  MessageSquare,
+  Settings as SettingsIcon,
+} from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import ActivityPanel from '../components/ActivityPanel'
@@ -6,6 +16,7 @@ import AgentPanel from '../components/AgentPanel'
 import Button from '../components/Button'
 import ChatPanel from '../components/ChatPanel'
 import DocumentsPanel from '../components/DocumentsPanel'
+import HelpModal from '../components/HelpModal'
 import PageShell from '../components/PageShell'
 import Spinner from '../components/Spinner'
 import Tabs from '../components/Tabs'
@@ -26,6 +37,7 @@ export default function ProjectDetail() {
   const navigate = useNavigate()
   const [project, setProject] = useState(null)
   const [tab, setTab] = useState('documents')
+  const [helpOpen, setHelpOpen] = useState(false)
 
   useEffect(() => {
     apiGet(`/api/projects/${id}`).then(setProject)
@@ -40,6 +52,14 @@ export default function ProjectDetail() {
     <PageShell
       headerActions={
         <div className="flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="sm"
+            icon={<HelpCircle className="h-4 w-4" />}
+            onClick={() => setHelpOpen(true)}
+          >
+            使用說明
+          </Button>
           <Button
             variant="ghost"
             size="sm"
@@ -92,6 +112,8 @@ export default function ProjectDetail() {
           </div>
         </>
       )}
+
+      <HelpModal open={helpOpen} onClose={() => setHelpOpen(false)} />
     </PageShell>
   )
 }

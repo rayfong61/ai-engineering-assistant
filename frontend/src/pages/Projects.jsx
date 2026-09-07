@@ -1,10 +1,11 @@
-import { FolderOpen, LogOut, Plus, Settings as SettingsIcon, Trash2 } from 'lucide-react'
+import { FolderOpen, HelpCircle, LogOut, Plus, Settings as SettingsIcon, Trash2 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import Alert from '../components/Alert'
 import Button from '../components/Button'
 import Card from '../components/Card'
 import EmptyState from '../components/EmptyState'
+import HelpModal from '../components/HelpModal'
 import Input from '../components/Input'
 import PageShell from '../components/PageShell'
 import Spinner from '../components/Spinner'
@@ -18,6 +19,7 @@ export default function Projects() {
   const [name, setName] = useState('')
   const [error, setError] = useState(null)
   const [creating, setCreating] = useState(false)
+  const [helpOpen, setHelpOpen] = useState(false)
   const creatingRef = useRef(false) // synchronous guard — state alone can lag a fast double-click
 
   const load = () => {
@@ -69,6 +71,14 @@ export default function Projects() {
     <PageShell
       headerActions={
         <div className="flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="sm"
+            icon={<HelpCircle className="h-4 w-4" />}
+            onClick={() => setHelpOpen(true)}
+          >
+            使用說明
+          </Button>
           <Button
             variant="ghost"
             size="sm"
@@ -137,6 +147,8 @@ export default function Projects() {
           ))}
         </div>
       )}
+
+      <HelpModal open={helpOpen} onClose={() => setHelpOpen(false)} />
     </PageShell>
   )
 }
