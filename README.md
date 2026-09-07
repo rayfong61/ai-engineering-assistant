@@ -19,6 +19,28 @@ Google 登入 → 建立專案 → 上傳工程 PDF/圖片 → RAG 問答 → Vi
 - **Activity Log** — 11 個關鍵工作流程節點（登入、上傳、embedding、RAG 檢索、Vision 分析、摘要生成、Email 草稿/確認/寄出）都會留下可追溯的紀錄。
 - **真實 Gmail 寄送** — 獨立於登入用 Google OAuth 的第二組 Gmail-only OAuth（`gmail.send` scope），使用者在 Settings 頁面連接自己的 Gmail 帳號後，Confirm & Send 會透過 MCP 呼叫真正的 Gmail API 寄出（`EMAIL_MODE=gmail`）；未連接時自動走 `EMAIL_MODE=mock`（記錄寄送內容但不真的呼叫 Gmail API），兩種模式都完整支援，不是互斥的取捨。
 
+## 展示畫面
+
+**Chat — RAG 問答，附來源文件與頁碼**
+![Chat 分頁：RAG 問答附來源文件與頁碼](data/demo_pics/chat-rag-citations.png)
+針對已上傳的 T3 工程 PDF 提問，答案逐條標註來源檔名與頁碼，不是憑空生成。
+
+**已上傳圖片的分析結果**
+![已上傳圖片的 Vision 分析結果，列出可觀察到的重點](data/demo_pics/chat-vision-analysis.png)
+針對圖片的分析結果，以「可觀察到」清單呈現，保留語氣，不對結構安全/合規性做斷言。
+
+**Agent — 自主判斷呼叫工具，整理成摘要**
+![Agent 分頁：依序呼叫 search_documents 與 generate_summary，產生會議摘要](data/demo_pics/agent-tool-calls-summary.png)
+使用者只問了一句「第三航廈的亮點整理」，Agent 自行判斷呼叫三次 `search_documents`（不同關鍵字）再呼叫 `generate_summary`，整理成結構化摘要。
+
+**Agent — 產生 Email 草稿（Human-in-the-Loop）**
+![Agent 產生 Email 草稿，顯示 Email Preview 卡片](data/demo_pics/agent-email-preview.png)
+請 Agent 把摘要寫成 email 後，畫面顯示 Preview 卡片（To／Subject／Body），Agent 本身不會寄出。
+
+**Confirm & Send 才會真正寄出**
+![Email Preview 卡片下方的 Confirm & Send 按鈕](data/demo_pics/agent-confirm-send.png)
+必須使用者手動點擊 Confirm & Send，才會透過 MCP 呼叫 Gmail API 真正送出——這是整個專案的核心 Human-in-the-Loop 設計。
+
 ## 刻意不做的取捨
 
 - **文件上傳只支援 PDF**，圖片只支援 JPG/PNG/WEBP，沒有 Word/Excel 等格式——超出 MVP 範圍。
