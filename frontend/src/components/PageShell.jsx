@@ -10,7 +10,7 @@ export default function PageShell({ headerLeft, headerActions, subNav, children 
         </div>
       )}
       <main className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
-        <div className="mx-auto max-w-5xl">{children}</div>
+        <div className="mx-auto h-full max-w-5xl">{children}</div>
       </main>
     </div>
   )

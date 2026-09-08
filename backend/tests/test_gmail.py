@@ -76,7 +76,7 @@ def test_callback_success_upserts_credential(db_session, alice, monkeypatch):
         return _Response(json_data={"access_token": "at-1", "refresh_token": "rt-1"})
 
     def fake_get(url, headers=None, timeout=None):
-        return _Response(json_data={"emailAddress": "connected@example.com"})
+        return _Response(json_data={"email": "connected@example.com"})
 
     monkeypatch.setattr("app.services.gmail_service.httpx.post", fake_post)
     monkeypatch.setattr("app.services.gmail_service.httpx.get", fake_get)
@@ -295,7 +295,7 @@ def test_callback_route_success_redirects_connected(client, alice, monkeypatch):
     )
     monkeypatch.setattr(
         "app.services.gmail_service.httpx.get",
-        lambda url, headers=None, timeout=None: _Response(json_data={"emailAddress": "a@example.com"}),
+        lambda url, headers=None, timeout=None: _Response(json_data={"email": "a@example.com"}),
     )
 
     response = client.get(

@@ -14,6 +14,7 @@ export default function ChatPanel({ projectId }) {
   const [error, setError] = useState(null)
   const [refreshKey, setRefreshKey] = useState(0)
   const [drawerOpen, setDrawerOpen] = useState(false)
+  const [lightboxUrl, setLightboxUrl] = useState(null)
   const bottomRef = useRef(null)
   const textareaRef = useRef(null)
 
@@ -43,13 +44,16 @@ export default function ChatPanel({ projectId }) {
         // actually be Agent-originated and include raw tool-call trace
         // rows (role="tool", JSON content) -- filter to user/assistant
         // only, same as AgentPanel already does, so that JSON never
-        // renders as if it were an answer.
+        // renders as if it were an answer. Agent-originated messages can
+        // also carry an attached image (m.image) -- keep it so reopening
+        // that conversation here doesn't silently drop the image.
         conversation.messages
           .filter((m) => m.role === 'user' || m.role === 'assistant')
           .map((m) => ({
             role: m.role,
             content: m.content,
             sources: m.sources,
+            image: m.image,
           }))
       )
     } catch (err) {
@@ -110,7 +114,7 @@ export default function ChatPanel({ projectId }) {
   }
 
   return (
-    <div className="flex gap-4">
+    <div className="flex h-full min-h-[28rem] gap-4">
       <ConversationList
         projectId={projectId}
         activeId={conversationId}
@@ -121,7 +125,7 @@ export default function ChatPanel({ projectId }) {
         onCloseMobile={() => setDrawerOpen(false)}
       />
 
-      <div className="flex min-h-[28rem] min-w-0 flex-1 flex-col rounded-card border border-slate-200 bg-white">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col rounded-card border border-slate-200 bg-white">
         <div className="flex items-center gap-2 border-b border-slate-200 bg-white p-2 md:hidden">
           <button
             type="button"
@@ -140,7 +144,7 @@ export default function ChatPanel({ projectId }) {
           </div>
         )}
 
-        <div className="p-4">
+        <div className="flex-1 overflow-y-auto p-4">
           {messages.length === 0 ? (
             <p className="py-8 text-center text-sm text-slate-400">
               針對這個專案的工程文件提問，答案會附上來源文件與頁碼。
@@ -149,7 +153,20 @@ export default function ChatPanel({ projectId }) {
             <div className="flex flex-col gap-4">
               {messages.map((msg, i) =>
                 msg.role === 'user' ? (
-                  <div key={i} className="flex justify-end">
+                  <div key={i} className="flex flex-col items-end gap-1.5">
+                    {msg.image?.url && (
+                      <button
+                        type="button"
+                        onClick={() => setLightboxUrl(msg.image.url)}
+                        aria-label="放大檢視圖片"
+                      >
+                        <img
+                          src={msg.image.url}
+                          alt={msg.image.filename}
+                          className="h-28 w-28 rounded-card border border-slate-200 object-cover"
+                        />
+                      </button>
+                    )}
                     <div className="max-w-[85%] rounded-card bg-brand-600 px-3 py-2 text-sm whitespace-pre-wrap text-white">
                       {msg.content}
                     </div>
@@ -183,7 +200,7 @@ export default function ChatPanel({ projectId }) {
 
         <form
           onSubmit={handleSend}
-          className="sticky bottom-3 mx-3 flex items-center gap-1 rounded-full border border-slate-300 bg-white py-1.5 pl-4 pr-1.5 shadow-card focus-within:border-brand-500"
+          className="mx-3 mb-3 flex items-center gap-1 rounded-full border border-slate-300 bg-white py-1.5 pl-4 pr-1.5 shadow-card focus-within:border-brand-500"
         >
           <textarea
             ref={textareaRef}
@@ -214,6 +231,15 @@ export default function ChatPanel({ projectId }) {
           </button>
         </form>
       </div>
+
+      {lightboxUrl && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/80 p-4"
+          onClick={() => setLightboxUrl(null)}
+        >
+          <img src={lightboxUrl} alt="放大檢視" className="max-h-full max-w-full rounded-card" />
+        </div>
+      )}
     </div>
   )
 }

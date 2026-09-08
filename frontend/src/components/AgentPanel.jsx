@@ -131,7 +131,7 @@ export default function AgentPanel({ projectId }) {
   }
 
   return (
-    <div className="flex gap-4">
+    <div className="flex h-full min-h-[28rem] gap-4">
       <ConversationList
         projectId={projectId}
         activeId={conversationId}
@@ -142,7 +142,7 @@ export default function AgentPanel({ projectId }) {
         onCloseMobile={() => setDrawerOpen(false)}
       />
 
-      <div className="flex min-h-[28rem] min-w-0 flex-1 flex-col rounded-card border border-slate-200 bg-white">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col rounded-card border border-slate-200 bg-white">
         <div className="flex items-center gap-2 border-b border-slate-200 bg-white p-2 md:hidden">
           <button
             type="button"
@@ -161,7 +161,7 @@ export default function AgentPanel({ projectId }) {
           </div>
         )}
 
-        <div className="p-4">
+        <div className="flex-1 overflow-y-auto p-4">
           {messages.length === 0 ? (
             <p className="py-8 text-center text-sm text-slate-400">
               請 Agent 整理工程文件與圖片分析成會議摘要，或協助處理其他任務。
@@ -247,7 +247,7 @@ export default function AgentPanel({ projectId }) {
           )}
         </div>
 
-        <div className="sticky bottom-3 mx-3">
+        <div className="mx-3 mb-3">
           {pendingImage && (
             <div className="mb-2 flex items-center gap-2 rounded-card border border-slate-200 bg-white px-2 py-1.5 shadow-card">
               <button

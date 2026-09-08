@@ -86,7 +86,7 @@ export default function ConversationList({
 
   return (
     <>
-      <aside className="hidden w-56 flex-shrink-0 flex-col gap-2 overflow-y-auto rounded-card border border-slate-200 bg-white p-2 md:flex">
+      <aside className="hidden h-full w-56 flex-shrink-0 flex-col gap-2 overflow-y-auto rounded-card border border-slate-200 bg-white p-2 md:flex">
         {listBody}
       </aside>
 

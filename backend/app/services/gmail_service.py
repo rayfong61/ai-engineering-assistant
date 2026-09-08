@@ -19,9 +19,15 @@ from app.models import GmailCredential
 
 GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
+GOOGLE_USERINFO_URL = "https://www.googleapis.com/oauth2/v2/userinfo"
 GMAIL_SEND_URL = "https://gmail.googleapis.com/gmail/v1/users/me/messages/send"
-GMAIL_PROFILE_URL = "https://gmail.googleapis.com/gmail/v1/users/me/profile"
 GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send"
+# Users can connect a Gmail account that differs from their Supabase-login
+# Google account, so the login email can't stand in for it -- "email" is
+# requested (on top of gmail.send) purely so /oauth2/v2/userinfo can report
+# which address was actually connected. This is the minimal scope for that:
+# it does not grant any Gmail-data access beyond what gmail.send already did.
+GMAIL_OAUTH_SCOPES = f"{GMAIL_SEND_SCOPE} email"
 STATE_TTL_SECONDS = 300
 
 _HTTP_TIMEOUT = 10
@@ -54,7 +60,7 @@ def build_authorize_url(user_id: str) -> str:
         "client_id": GMAIL_CLIENT_ID,
         "redirect_uri": GMAIL_REDIRECT_URI,
         "response_type": "code",
-        "scope": GMAIL_SEND_SCOPE,
+        "scope": GMAIL_OAUTH_SCOPES,
         "access_type": "offline",
         "prompt": "consent",
         "state": make_state(user_id),
@@ -91,18 +97,21 @@ def handle_callback(db: Session, code: str, state: str) -> str:
     if not refresh_token:
         raise ValueError("Google 未回傳 refresh_token（確認 access_type=offline/prompt=consent 有生效）")
 
-    # Best-effort only -- gmail.send scope may not authorize the profile
-    # endpoint. A failure here must not block storing the refresh token;
-    # the Settings page just shows "已連接" without an address in that case.
+    # Best-effort only -- a failure here must not block storing the refresh
+    # token; the Settings page just shows "已連接" without an address in
+    # that case. Uses the standard OAuth2 userinfo endpoint (authorized by
+    # the "email" scope requested above), not the Gmail API profile
+    # endpoint -- that one needs gmail.readonly/modify/metadata, which
+    # gmail.send alone never authorizes.
     gmail_email = None
     try:
-        profile = httpx.get(
-            GMAIL_PROFILE_URL,
+        userinfo = httpx.get(
+            GOOGLE_USERINFO_URL,
             headers={"Authorization": f"Bearer {tokens['access_token']}"},
             timeout=_HTTP_TIMEOUT,
         )
-        profile.raise_for_status()
-        gmail_email = profile.json().get("emailAddress")
+        userinfo.raise_for_status()
+        gmail_email = userinfo.json().get("email")
     except httpx.HTTPError:
         gmail_email = None
 
