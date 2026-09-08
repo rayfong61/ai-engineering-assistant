@@ -1,6 +1,6 @@
 import { ArrowUp, FileText, Menu } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
-import { apiGet, apiPost } from '../lib/api'
+import { apiGet, apiPostStream } from '../lib/api'
 import Alert from './Alert'
 import ConversationList from './ConversationList'
 import MarkdownContent from './MarkdownContent'
@@ -18,7 +18,12 @@ export default function ChatPanel({ projectId }) {
   const textareaRef = useRef(null)
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+    // 'smooth' fires a scroll animation on every update -- fine for the old
+    // two-updates-per-turn flow, but streaming now updates `messages` on
+    // every token event, so overlapping smooth animations kept re-targeting
+    // mid-flight and made the page visibly jitter. 'auto' snaps instantly,
+    // which is imperceptible at token-sized scroll deltas.
+    bottomRef.current?.scrollIntoView({ behavior: 'auto' })
   }, [messages, sending])
 
   const handleNew = () => {
@@ -57,24 +62,47 @@ export default function ChatPanel({ projectId }) {
     const question = input.trim()
     if (!question || sending) return
 
-    setMessages((prev) => [...prev, { role: 'user', content: question }])
+    setMessages((prev) => [...prev, { role: 'user', content: question }, { role: 'assistant', content: '', sources: [] }])
     setInput('')
     if (textareaRef.current) textareaRef.current.style.height = 'auto'
     setSending(true)
     setError(null)
 
-    try {
-      const response = await apiPost(`/api/projects/${projectId}/chat`, {
-        conversation_id: conversationId,
-        message: question,
+    // Streamed onto the trailing placeholder assistant message added above --
+    // every handler below only ever touches the last element of `messages`.
+    const appendToLastMessage = (patch) => {
+      setMessages((prev) => {
+        const next = [...prev]
+        next[next.length - 1] = { ...next[next.length - 1], ...patch }
+        return next
       })
-      setConversationId(response.conversation_id)
-      setMessages((prev) => [
-        ...prev,
-        { role: 'assistant', content: response.answer, sources: response.sources },
-      ])
-      setRefreshKey((k) => k + 1) // conversation list picks up the new/updated title
+    }
+
+    let answer = ''
+    try {
+      await apiPostStream(
+        `/api/projects/${projectId}/chat`,
+        { conversation_id: conversationId, message: question },
+        {
+          meta: (event) => {
+            setConversationId(event.conversation_id)
+            appendToLastMessage({ sources: event.sources })
+          },
+          token: (event) => {
+            answer += event.text
+            appendToLastMessage({ content: answer })
+          },
+          error: (event) => {
+            setMessages((prev) => prev.slice(0, -1)) // drop the empty placeholder
+            setError(event.message)
+          },
+          done: () => {
+            setRefreshKey((k) => k + 1) // conversation list picks up the new/updated title
+          },
+        }
+      )
     } catch (err) {
+      setMessages((prev) => prev.slice(0, -1))
       setError(err.message)
     } finally {
       setSending(false)
@@ -145,7 +173,9 @@ export default function ChatPanel({ projectId }) {
                   </div>
                 )
               )}
-              {sending && <Spinner label="思考中..." className="text-slate-500" />}
+              {sending && !messages[messages.length - 1]?.content && (
+                <Spinner label="思考中..." className="text-slate-500" />
+              )}
               <div ref={bottomRef} />
             </div>
           )}

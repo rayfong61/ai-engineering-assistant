@@ -20,6 +20,11 @@ SYSTEM_PROMPT = f"""你是一個工程知識助理。
 
 回答時盡量標註資訊來源（文件與頁碼）。
 
+檢索內容是從 PDF 直接擷取的純文字，表格的框線與欄位結構在擷取過程中已經流失，
+可能呈現為一行一個標籤或數值的破碎文字。若要整理這類表格化資訊，請用條列式呈現
+（例如「服務水準：A級」，每一項目獨立一行），不要嘗試重建 markdown 表格語法
+（`| --- |`），因為破碎的原始文字很容易組出格式錯誤、無法正確顯示的表格。
+
 不可以對以下事項做出未經證實的斷言：
 - 結構安全性
 - 施工品質
@@ -64,6 +69,33 @@ def generate_answer(question: str, context_chunks: list[dict]) -> str:
         ],
     )
     return _extract_text(message)
+
+
+def generate_answer_stream(question: str, context_chunks: list[dict]):
+    """Same grounding/prompt as generate_answer, but yields text deltas as
+    they arrive instead of waiting for the full message. Callers accumulate
+    the yielded pieces themselves if they need the final answer string."""
+    if not context_chunks:
+        yield NO_CONTEXT_ANSWER
+        return
+
+    context_text = "\n\n".join(
+        f"[來源：{c['filename']} 第{c['page']}頁]\n{c['content']}" for c in context_chunks
+    )
+    with _client().messages.stream(
+        model=CLAUDE_MODEL,
+        max_tokens=4096,
+        system=SYSTEM_PROMPT,
+        messages=[
+            {
+                "role": "user",
+                "content": f"檢索到的工程文件內容：\n\n{context_text}\n\n問題：{question}",
+            }
+        ],
+    ) as stream:
+        # text_stream already filters out non-text blocks (e.g. thinking),
+        # matching what _extract_text does for the non-streaming call.
+        yield from stream.text_stream
 
 
 # spec2.md section 18. Wording is verbatim from the spec -- Claude is

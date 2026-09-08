@@ -1,4 +1,5 @@
 import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 
 // Claude's answers/summaries come back as Markdown (##, **bold**, lists) --
 // these overrides keep it at the same text-sm scale used everywhere else in
@@ -22,6 +23,20 @@ const COMPONENTS = {
       {children}
     </pre>
   ),
+  // PDF table extraction loses grid structure (see CLAUDE.md), so Claude's
+  // answers sometimes relay a wide, many-column table -- wrap in its own
+  // scroll container so it doesn't force the whole chat bubble to overflow.
+  table: ({ children }) => (
+    <div className="mb-1.5 max-w-full overflow-x-auto last:mb-0">
+      <table className="border-collapse text-xs">{children}</table>
+    </div>
+  ),
+  thead: ({ children }) => <thead className="bg-black/5">{children}</thead>,
+  tr: ({ children }) => <tr className="border-b border-black/10 last:border-0">{children}</tr>,
+  th: ({ children }) => (
+    <th className="whitespace-nowrap px-2 py-1 text-left font-semibold">{children}</th>
+  ),
+  td: ({ children }) => <td className="px-2 py-1 align-top">{children}</td>,
   // react-markdown v9 no longer passes an `inline` flag to `code` -- fenced
   // blocks with a language tag get a `language-xxx` className, so that's
   // the signal used to skip the inline "pill" styling for those.
@@ -36,7 +51,9 @@ const COMPONENTS = {
 export default function MarkdownContent({ content, className = '' }) {
   return (
     <div className={`text-sm ${className}`}>
-      <ReactMarkdown components={COMPONENTS}>{content}</ReactMarkdown>
+      <ReactMarkdown remarkPlugins={[remarkGfm]} components={COMPONENTS}>
+        {content}
+      </ReactMarkdown>
     </div>
   )
 }

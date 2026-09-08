@@ -1,8 +1,10 @@
+import json
 import logging
 import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.core.auth import get_current_user
@@ -11,13 +13,11 @@ from app.core.database import get_db
 from app.models import Conversation, Document, Message
 from app.schemas.document import (
     ChatRequest,
-    ChatResponse,
     ConversationDetailOut,
     ConversationOut,
     MessageImageOut,
     MessageOut,
     MessageSourceOut,
-    SourceOut,
 )
 from app.services import claude_service, embedding_service, rag_service
 from app.services.activity_service import log_activity
@@ -31,7 +31,11 @@ conversation_router = APIRouter(prefix="/api/conversations", tags=["chat"])
 TOP_K = 5
 
 
-@router.post("/chat", response_model=ChatResponse)
+def _sse(event: dict) -> str:
+    return f"data: {json.dumps(event, default=str)}\n\n"
+
+
+@router.post("/chat")
 def chat(
     project_id: str,
     payload: ChatRequest,
@@ -83,44 +87,56 @@ def chat(
             {"filename": filenames.get(c.document_id, "unknown"), "page": c.page, "content": c.content}
             for c in chunks
         ]
-        answer = claude_service.generate_answer(payload.message, context)
     except Exception as exc:
         logger.exception("Chat request failed for project %s", project_id)
         raise HTTPException(status_code=502, detail="回答問題失敗，請稍後再試") from exc
 
-    db.add(
-        Message(
-            conversation_id=conversation.id,
-            role="assistant",
-            content=answer,
-            metadata_={
-                "sources": [
-                    {
-                        "document_id": str(c.document_id),
-                        "filename": filenames.get(c.document_id, "unknown"),
-                        "page": c.page,
-                    }
-                    for c in chunks
-                ]
-            },
-        )
-    )
-    conversation.updated_at = datetime.now(timezone.utc)
-    db.commit()
+    # Retrieval already ran and is known-good above, so the meta event (with
+    # sources) plus everything that follows is safe to stream -- only the
+    # generation step itself still needs its own try/except, since by then
+    # response headers are already sent and an HTTPException can't be raised.
+    sources = [
+        {
+            "document_id": str(c.document_id),
+            "filename": filenames.get(c.document_id, "unknown"),
+            "page": c.page,
+            "content": c.content,
+        }
+        for c in chunks
+    ]
 
-    return ChatResponse(
-        conversation_id=conversation.id,
-        answer=answer,
-        sources=[
-            SourceOut(
-                document_id=c.document_id,
-                filename=filenames.get(c.document_id, "unknown"),
-                page=c.page,
-                content=c.content,
+    def event_stream():
+        yield _sse({"type": "meta", "conversation_id": str(conversation.id), "sources": sources})
+
+        answer_parts: list[str] = []
+        try:
+            for delta in claude_service.generate_answer_stream(payload.message, context):
+                answer_parts.append(delta)
+                yield _sse({"type": "token", "text": delta})
+        except Exception:
+            logger.exception("Chat stream failed for project %s", project_id)
+            db.rollback()
+            yield _sse({"type": "error", "message": "回答問題失敗，請稍後再試"})
+            return
+
+        db.add(
+            Message(
+                conversation_id=conversation.id,
+                role="assistant",
+                content="".join(answer_parts),
+                metadata_={
+                    "sources": [
+                        {"document_id": s["document_id"], "filename": s["filename"], "page": s["page"]}
+                        for s in sources
+                    ]
+                },
             )
-            for c in chunks
-        ],
-    )
+        )
+        conversation.updated_at = datetime.now(timezone.utc)
+        db.commit()
+        yield _sse({"type": "done"})
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
 @router.get("/conversations", response_model=list[ConversationOut])
