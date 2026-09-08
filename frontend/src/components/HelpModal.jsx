@@ -1,4 +1,5 @@
 import { X } from 'lucide-react'
+import { createPortal } from 'react-dom'
 
 const STEPS = [
   {
@@ -38,7 +39,13 @@ const STEPS = [
 export default function HelpModal({ open, onClose }) {
   if (!open) return null
 
-  return (
+  // Portaled to <body> -- HelpModal is rendered via HeaderActions inside
+  // <Header>, which has backdrop-blur (backdrop-filter). A filter/
+  // backdrop-filter on an ancestor creates a new containing block for
+  // position:fixed descendants, so without the portal this overlay would
+  // be sized/positioned relative to the thin header bar instead of the
+  // real viewport.
+  return createPortal(
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4"
       onClick={onClose}
@@ -78,6 +85,7 @@ export default function HelpModal({ open, onClose }) {
           ))}
         </ol>
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }

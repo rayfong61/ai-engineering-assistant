@@ -1,8 +1,7 @@
-import { FileText, Paperclip, Send, Wrench, X } from 'lucide-react'
+import { ArrowUp, FileText, Menu, Plus, Wrench, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { apiGet, apiPost, apiUpload } from '../lib/api'
 import Alert from './Alert'
-import Button from './Button'
 import ConversationList from './ConversationList'
 import EmailPreviewCard from './EmailPreviewCard'
 import MarkdownContent from './MarkdownContent'
@@ -18,6 +17,7 @@ export default function AgentPanel({ projectId }) {
   const [pendingImage, setPendingImage] = useState(null) // {id, filename, url}
   const [uploadingImage, setUploadingImage] = useState(false)
   const [lightboxUrl, setLightboxUrl] = useState(null)
+  const [drawerOpen, setDrawerOpen] = useState(false)
   const bottomRef = useRef(null)
   const fileInputRef = useRef(null)
   const textareaRef = useRef(null)
@@ -37,14 +37,32 @@ export default function AgentPanel({ projectId }) {
     try {
       const conversation = await apiGet(`/api/conversations/${id}`)
       setConversationId(conversation.id)
-      setMessages(
-        // Tool-call trace rows (role="tool") only render for the current
-        // turn's freshly-returned tool_calls[] -- past ones reload here as
-        // plain user/assistant text, not raw JSON tool messages.
-        conversation.messages
-          .filter((m) => m.role === 'user' || m.role === 'assistant')
-          .map((m) => ({ role: m.role, content: m.content, sources: m.sources, image: m.image }))
-      )
+      // Tool-call trace rows (role="tool") are persisted as the exact same
+      // {tool, input, output} shape a live /agent response returns in
+      // tool_calls[] (see agent_service.py) -- re-parse them here and
+      // re-attach to the assistant message that follows, so a reloaded
+      // conversation can still render an EmailPreviewCard for an
+      // unsent draft, not just its plain-text description.
+      const reconstructed = []
+      let pendingToolCalls = []
+      for (const m of conversation.messages) {
+        if (m.role === 'tool') {
+          try {
+            pendingToolCalls.push(JSON.parse(m.content))
+          } catch {
+            // malformed trace row -- drop it rather than crash the reload
+          }
+          continue
+        }
+        if (m.role !== 'user' && m.role !== 'assistant') continue
+        const entry = { role: m.role, content: m.content, sources: m.sources, image: m.image }
+        if (m.role === 'assistant' && pendingToolCalls.length > 0) {
+          entry.toolCalls = pendingToolCalls
+          pendingToolCalls = []
+        }
+        reconstructed.push(entry)
+      }
+      setMessages(reconstructed)
     } catch (err) {
       setError(err.message)
     }
@@ -113,23 +131,37 @@ export default function AgentPanel({ projectId }) {
   }
 
   return (
-    <div className="flex h-[calc(100vh-16rem)] min-h-[28rem] gap-4">
+    <div className="flex gap-4">
       <ConversationList
         projectId={projectId}
         activeId={conversationId}
         onSelect={handleSelect}
         onNew={handleNew}
         refreshKey={refreshKey}
+        mobileOpen={drawerOpen}
+        onCloseMobile={() => setDrawerOpen(false)}
       />
 
-      <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-card border border-slate-200 bg-white">
+      <div className="flex min-h-[28rem] min-w-0 flex-1 flex-col rounded-card border border-slate-200 bg-white">
+        <div className="flex items-center gap-2 border-b border-slate-200 bg-white p-2 md:hidden">
+          <button
+            type="button"
+            onClick={() => setDrawerOpen(true)}
+            aria-label="開啟對話列表"
+            className="rounded p-2 text-slate-500 hover:bg-slate-100"
+          >
+            <Menu className="h-5 w-5" />
+          </button>
+          <span className="truncate text-sm font-medium text-slate-700">對話</span>
+        </div>
+
         {error && (
           <div className="p-3">
             <Alert variant="error">{error}</Alert>
           </div>
         )}
 
-        <div className="flex-1 overflow-y-auto p-4">
+        <div className="p-4">
           {messages.length === 0 ? (
             <p className="py-8 text-center text-sm text-slate-400">
               請 Agent 整理工程文件與圖片分析成會議摘要，或協助處理其他任務。
@@ -184,15 +216,15 @@ export default function AgentPanel({ projectId }) {
                         />
                       </button>
                     )}
-                    <div
-                      className={`max-w-[85%] rounded-card px-3 py-2 ${
-                        msg.role === 'user'
-                          ? 'bg-brand-600 text-sm whitespace-pre-wrap text-white'
-                          : 'bg-slate-100 text-slate-900'
-                      }`}
-                    >
-                      {msg.role === 'user' ? msg.content : <MarkdownContent content={msg.content} />}
-                    </div>
+                    {msg.role === 'user' ? (
+                      <div className="max-w-[85%] rounded-card bg-brand-600 px-3 py-2 text-sm whitespace-pre-wrap text-white">
+                        {msg.content}
+                      </div>
+                    ) : (
+                      <div className="w-full text-slate-900">
+                        <MarkdownContent content={msg.content} />
+                      </div>
+                    )}
                   </div>
                   {msg.sources?.length > 0 && (
                     <div className="mt-1 flex flex-wrap justify-start gap-1.5">
@@ -215,9 +247,9 @@ export default function AgentPanel({ projectId }) {
           )}
         </div>
 
-        <div className="border-t border-slate-200 p-3">
+        <div className="sticky bottom-3 mx-3">
           {pendingImage && (
-            <div className="mb-2 flex items-center gap-2">
+            <div className="mb-2 flex items-center gap-2 rounded-card border border-slate-200 bg-white px-2 py-1.5 shadow-card">
               <button
                 type="button"
                 onClick={() => setLightboxUrl(pendingImage.url)}
@@ -240,7 +272,10 @@ export default function AgentPanel({ projectId }) {
               </button>
             </div>
           )}
-          <form onSubmit={handleSend} className="flex items-end gap-2">
+          <form
+            onSubmit={handleSend}
+            className="flex items-center gap-1 rounded-full border border-slate-300 bg-white py-1.5 pl-1.5 pr-1.5 shadow-card focus-within:border-brand-500"
+          >
             <input
               ref={fileInputRef}
               type="file"
@@ -248,13 +283,15 @@ export default function AgentPanel({ projectId }) {
               onChange={handleFileChange}
               className="hidden"
             />
-            <Button
+            <button
               type="button"
-              variant="ghost"
-              icon={<Paperclip className="h-4 w-4" />}
-              loading={uploadingImage}
               onClick={() => fileInputRef.current?.click()}
-            />
+              disabled={uploadingImage}
+              aria-label="附加圖片"
+              className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full text-slate-500 transition-colors hover:bg-slate-100 disabled:opacity-50"
+            >
+              {uploadingImage ? <Spinner size="sm" /> : <Plus className="h-5 w-5" />}
+            </button>
             <textarea
               ref={textareaRef}
               value={input}
@@ -271,12 +308,17 @@ export default function AgentPanel({ projectId }) {
               }}
               placeholder="請 Agent 協助處理任務...（Shift+Enter 換行）"
               rows={1}
-              className="max-h-[150px] flex-1 resize-none rounded-card border border-slate-300 px-3 py-2 text-sm
-                text-slate-900 placeholder:text-slate-400 focus-visible:border-brand-500"
+              className="max-h-[150px] flex-1 resize-none bg-transparent py-1 text-sm text-slate-900
+                placeholder:text-slate-400 focus:outline-none"
             />
-            <Button type="submit" loading={sending} icon={<Send className="h-4 w-4" />}>
-              送出
-            </Button>
+            <button
+              type="submit"
+              disabled={sending || !input.trim()}
+              aria-label="送出"
+              className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-brand-600 text-white transition-colors hover:bg-brand-700 disabled:opacity-40"
+            >
+              {sending ? <Spinner size="sm" className="text-white" /> : <ArrowUp className="h-4 w-4" />}
+            </button>
           </form>
         </div>
       </div>

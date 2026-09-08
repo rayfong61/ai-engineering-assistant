@@ -49,11 +49,11 @@ export default function EmailPreviewCard({ projectId, draft }) {
       <dl className="space-y-1.5 text-sm">
         <div>
           <dt className="inline text-slate-500">To: </dt>
-          <dd className="inline text-slate-900">{draft.to}</dd>
+          <dd className="inline break-all text-slate-900">{draft.to}</dd>
         </div>
         <div>
           <dt className="inline text-slate-500">Subject: </dt>
-          <dd className="inline text-slate-900">{draft.subject}</dd>
+          <dd className="inline break-words text-slate-900">{draft.subject}</dd>
         </div>
         <div>
           <dt className="text-slate-500">Body:</dt>

@@ -1,16 +1,15 @@
-import { FolderOpen, HelpCircle, LogOut, Plus, Settings as SettingsIcon, Trash2 } from 'lucide-react'
+import { FolderOpen, Plus, Trash2 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import Alert from '../components/Alert'
 import Button from '../components/Button'
 import Card from '../components/Card'
 import EmptyState from '../components/EmptyState'
-import HelpModal from '../components/HelpModal'
+import HeaderActions from '../components/HeaderActions'
 import Input from '../components/Input'
 import PageShell from '../components/PageShell'
 import Spinner from '../components/Spinner'
 import { apiDelete, apiGet, apiPost } from '../lib/api'
-import { supabase } from '../lib/supabaseClient'
 
 export default function Projects() {
   const navigate = useNavigate()
@@ -19,7 +18,6 @@ export default function Projects() {
   const [name, setName] = useState('')
   const [error, setError] = useState(null)
   const [creating, setCreating] = useState(false)
-  const [helpOpen, setHelpOpen] = useState(false)
   const creatingRef = useRef(false) // synchronous guard — state alone can lag a fast double-click
 
   const load = () => {
@@ -62,37 +60,8 @@ export default function Projects() {
     }
   }
 
-  const handleLogout = async () => {
-    await supabase.auth.signOut()
-    navigate('/login')
-  }
-
   return (
-    <PageShell
-      headerActions={
-        <div className="flex items-center gap-1">
-          <Button
-            variant="ghost"
-            size="sm"
-            icon={<HelpCircle className="h-4 w-4" />}
-            onClick={() => setHelpOpen(true)}
-          >
-            使用說明
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            icon={<SettingsIcon className="h-4 w-4" />}
-            onClick={() => navigate('/settings')}
-          >
-            設定
-          </Button>
-          <Button variant="ghost" size="sm" icon={<LogOut className="h-4 w-4" />} onClick={handleLogout}>
-            登出
-          </Button>
-        </div>
-      }
-    >
+    <PageShell headerActions={<HeaderActions />}>
       <h1 className="mb-4 text-xl font-semibold text-slate-900">我的專案</h1>
 
       {error && (
@@ -138,7 +107,7 @@ export default function Projects() {
               {p.description && <p className="mt-1 text-sm text-slate-500">{p.description}</p>}
               <button
                 onClick={(e) => handleDelete(e, p)}
-                className="absolute right-4 top-4 text-slate-400 hover:text-red-600"
+                className="absolute right-2 top-2 rounded p-2 text-slate-400 hover:bg-slate-100 hover:text-red-600"
                 aria-label="刪除專案"
               >
                 <Trash2 className="h-4 w-4" />
@@ -147,8 +116,6 @@ export default function Projects() {
           ))}
         </div>
       )}
-
-      <HelpModal open={helpOpen} onClose={() => setHelpOpen(false)} />
     </PageShell>
   )
 }
