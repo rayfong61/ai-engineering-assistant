@@ -42,6 +42,41 @@ AGENT_TOOLS = [
         "input_schema": {"type": "object", "properties": {}, "required": [], "additionalProperties": False},
     },
     {
+        "name": "get_site_weather",
+        "description": (
+            "當使用者詢問工地/案場所在地的天氣、施工環境，或會議摘要需要天氣資訊時使用"
+            "（經 MCP，中央氣象署開放資料）。輸入為縣市名稱（如「桃園市」），不是鄉鎮區、不是經緯度"
+            "——此資料集僅提供縣市層級的預報，若剛呼叫過 check_site_location，"
+            "可從其回傳的 formatted_address 取出所屬縣市名稱代入，不可直接帶入完整地址或鄉鎮區名稱。"
+            "回傳的 forecasts 是約 15 個約 12 小時時段組成的陣列（涵蓋未來約一週），"
+            "每個時段附 start_time/end_time——必須自行比對使用者詢問的日期或時段"
+            "（例如「今晚」「明天」「這週五」）落在哪個 start_time~end_time 區間，再引用該時段的資料回答；"
+            "若使用者詢問的日期超出 forecasts 涵蓋範圍（所有 end_time 都早於該日期），"
+            "必須誠實告知超出可查詢範圍，不可用陣列裡最接近的時段冒充。"
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {"location": {"type": "string", "description": "縣市名稱，如「桃園市」（非鄉鎮區）"}},
+            "required": ["location"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "check_site_location",
+        "description": (
+            "當使用者提供工程地址、需要確認基地位置或對桃園市地質敏感區資料做初步空間套疊篩查時使用"
+            "（經 MCP：OpenStreetMap Nominatim 地理編碼 + 本地地質敏感區資料）。回傳的 potential_geological_sensitive_zone "
+            "是初步篩查結果，不是正式判定；data_available=false 代表沒有資料可查，不等於「確認沒有重疊」。"
+            "回答時必須完整保留 disclaimer 內容，不可據此斷言工程安全或法規合規性。"
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {"address": {"type": "string"}},
+            "required": ["address"],
+            "additionalProperties": False,
+        },
+    },
+    {
         "name": "draft_email",
         "description": (
             "產生一封 email 草稿（收件人/主旨/內容），寫入 email_logs 為 draft 狀態。"
@@ -62,7 +97,14 @@ AGENT_TOOLS = [
 
 AGENT_SYSTEM_PROMPT = """你是一個工程專案助理 Agent。可使用的工具：
 search_documents（搜尋工程文件）、analyze_image（取得圖片分析）、
+get_site_weather（查詢案場所在地天氣，經 MCP：中央氣象署開放資料）、
+check_site_location（查詢案址地理位置並對桃園市地質敏感區資料做初步空間套疊篩查，經 MCP：
+OpenStreetMap Nominatim 地理編碼 + 本地地質敏感區資料）、
 generate_summary（整理會議摘要）、draft_email（產生 email 草稿，不會真的寄信）。
+
+整理 check_site_location 的結果時，必須原樣保留其回傳的 disclaimer 內容給使用者，
+不可省略、不可用自己的話重新包裝成更肯定的講法——這個工具只做初步篩查，不是正式地質判定，
+絕不能據此斷言工程安全或法規合規性，比照現有 Vision 分析、會議摘要、email 草稿的措辭紀律。
 
 呼叫 draft_email 只會產生草稿並存成 draft 狀態，讓使用者在 Email Preview 中確認——
 你自己永遠不能真的寄出郵件，寄送必須由使用者明確點擊 Confirm & Send 才會發生。
@@ -143,6 +185,10 @@ def execute_workflow(
             log_activity(
                 db, project_id, user["id"], "rag_search_executed", detail=tool_input["query"][:200]
             )
+        elif name == "get_site_weather":
+            output = mcp_client.call_tool("get_site_weather", {"location": tool_input["location"]})
+        elif name == "check_site_location":
+            output = mcp_client.call_tool("check_site_location", {"address": tool_input["address"]})
         elif name == "analyze_image":
             output = _lookup_vision_analysis(db, project_id, tool_input.get("image_id"))
             if "error" not in output:

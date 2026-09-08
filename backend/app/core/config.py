@@ -41,6 +41,14 @@ GMAIL_TOKEN_ENCRYPTION_KEY = os.getenv("GMAIL_TOKEN_ENCRYPTION_KEY", "")
 
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
 
+# ── CWA (中央氣象署開放資料平台，天氣查詢 MCP 工具) ─────────────────
+CWA_API_KEY = os.getenv("CWA_API_KEY", "")
+
+# GIS 案址查詢工具的地理編碼改用 OpenStreetMap Nominatim（免申請、免金鑰，
+# 見 app/services/geo_service.py）——TGOS 的門牌位置比對服務僅開放政府機關/
+# 公營事業/學術及法人團體/公司行號申請，個人無法申請，故不採用，這裡不需要
+# 對應的 API key 常數。
+
 # The mcp-server container, reached over the internal Docker Compose network
 # -- never given a published port the frontend/browser can reach (spec2.md
 # section 21/30). The backend's Agent is its only client.

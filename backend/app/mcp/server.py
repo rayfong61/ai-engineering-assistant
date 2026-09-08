@@ -2,8 +2,10 @@ import logging
 
 from mcp.server.mcpserver import MCPServer
 
+from app.mcp.tools import geo as geo_impl
 from app.mcp.tools import search_documents as search_documents_impl
 from app.mcp.tools import send_email as send_email_impl
+from app.mcp.tools import weather as weather_impl
 
 # Trust boundary: this process is reachable only from the backend container
 # on the internal Docker Compose network (no published port to the
@@ -20,6 +22,21 @@ def search_documents(query: str, project_id: str) -> list[dict]:
     """Project-scoped semantic search over ingested engineering documents
     (Voyage embedding + pgvector, via rag_service.retrieve_chunks)."""
     return search_documents_impl.run(query, project_id)
+
+
+@mcp.tool()
+def get_site_weather(location: str) -> dict:
+    """查詢指定地點（縣市名稱，如「桃園市」，非鄉鎮區）未來一週的天氣預報（經 MCP，中央氣象署開放資料平台）。
+    回傳 forecasts 陣列，包含約 15 個約 12 小時的時段，每個時段附 start_time/end_time，
+    呼叫端需自行比對使用者詢問的日期/時段。"""
+    return weather_impl.run(location)
+
+
+@mcp.tool()
+def check_site_location(address: str) -> dict:
+    """查詢地址的地理位置，並對桃園市地質敏感區資料做初步空間套疊篩查（經 MCP：
+    OpenStreetMap Nominatim 地理編碼 + 本地 GeoJSON 點位判斷）。結果僅供初步參考，非正式地質評估。"""
+    return geo_impl.run(address)
 
 
 @mcp.tool()
