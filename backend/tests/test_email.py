@@ -72,7 +72,7 @@ def test_preview_email_with_invalid_conversation_returns_404(
 
 def test_send_email_happy_path(client, db_session, current_user_override, alice, monkeypatch):
     _monkeypatch_draft(monkeypatch)
-    monkeypatch.setattr("app.mcp.client.call_tool", lambda name, args: {"status": "sent"})
+    monkeypatch.setattr("app.tools.send_email.run", lambda **kwargs: {"status": "sent"})
     current_user_override(alice)
     project_id = client.post("/api/projects", json={"name": "T3"}).json()["id"]
 
@@ -91,7 +91,7 @@ def test_send_email_happy_path(client, db_session, current_user_override, alice,
 
 def test_send_email_already_sent_returns_409(client, current_user_override, alice, monkeypatch):
     _monkeypatch_draft(monkeypatch)
-    monkeypatch.setattr("app.mcp.client.call_tool", lambda name, args: {"status": "sent"})
+    monkeypatch.setattr("app.tools.send_email.run", lambda **kwargs: {"status": "sent"})
     current_user_override(alice)
     project_id = client.post("/api/projects", json={"name": "T3"}).json()["id"]
 
@@ -107,13 +107,13 @@ def test_send_email_already_sent_returns_409(client, current_user_override, alic
     assert response.status_code == 409
 
 
-def test_send_email_mcp_failure_marks_failed(client, db_session, current_user_override, alice, monkeypatch):
+def test_send_email_tool_failure_marks_failed(client, db_session, current_user_override, alice, monkeypatch):
     _monkeypatch_draft(monkeypatch)
 
-    def _raise(name, args):
-        raise RuntimeError("MCP unreachable")
+    def _raise(**kwargs):
+        raise RuntimeError("Gmail unreachable")
 
-    monkeypatch.setattr("app.mcp.client.call_tool", _raise)
+    monkeypatch.setattr("app.tools.send_email.run", _raise)
     current_user_override(alice)
     project_id = client.post("/api/projects", json={"name": "T3"}).json()["id"]
 

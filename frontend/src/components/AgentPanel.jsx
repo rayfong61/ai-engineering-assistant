@@ -2,10 +2,16 @@ import { ArrowUp, FileText, Menu, Plus, Wrench, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { apiGet, apiPost, apiUpload } from '../lib/api'
 import Alert from './Alert'
+import CalendarEventPreviewCard from './CalendarEventPreviewCard'
 import ConversationList from './ConversationList'
 import EmailPreviewCard from './EmailPreviewCard'
 import MarkdownContent from './MarkdownContent'
 import Spinner from './Spinner'
+
+// These two tools render their own dedicated preview card (below) instead
+// of the generic tool-call pill -- kept as one list so both filters below
+// (and the render branches after them) stay in sync.
+const PREVIEW_CARD_TOOLS = ['draft_email', 'create_calendar_event']
 
 export default function AgentPanel({ projectId }) {
   const [conversationId, setConversationId] = useState(null)
@@ -155,12 +161,6 @@ export default function AgentPanel({ projectId }) {
           <span className="truncate text-sm font-medium text-slate-700">對話</span>
         </div>
 
-        {error && (
-          <div className="p-3">
-            <Alert variant="error">{error}</Alert>
-          </div>
-        )}
-
         <div className="flex-1 overflow-y-auto p-4">
           {messages.length === 0 ? (
             <p className="py-8 text-center text-sm text-slate-400">
@@ -171,10 +171,10 @@ export default function AgentPanel({ projectId }) {
             <div className="flex flex-col gap-4">
               {messages.map((msg, i) => (
                 <div key={i} className={msg.role === 'user' ? 'text-right' : 'text-left'}>
-                  {msg.toolCalls?.some((tc) => tc.tool !== 'draft_email') && (
+                  {msg.toolCalls?.some((tc) => !PREVIEW_CARD_TOOLS.includes(tc.tool)) && (
                     <div className="mb-1.5 flex flex-col items-start gap-1">
                       {msg.toolCalls
-                        .filter((tc) => tc.tool !== 'draft_email')
+                        .filter((tc) => !PREVIEW_CARD_TOOLS.includes(tc.tool))
                         .map((tc, j) => (
                           <span
                             key={j}
@@ -196,6 +196,13 @@ export default function AgentPanel({ projectId }) {
                     .map((tc, j) => (
                       <div key={`email-${j}`} className="mb-2 inline-block">
                         <EmailPreviewCard projectId={projectId} draft={tc.output} />
+                      </div>
+                    ))}
+                  {msg.toolCalls
+                    ?.filter((tc) => tc.tool === 'create_calendar_event')
+                    .map((tc, j) => (
+                      <div key={`calendar-${j}`} className="mb-2 inline-block">
+                        <CalendarEventPreviewCard projectId={projectId} draft={tc.output} />
                       </div>
                     ))}
                   <div
@@ -248,6 +255,16 @@ export default function AgentPanel({ projectId }) {
         </div>
 
         <div className="mx-3 mb-3">
+          {/* Rendered next to the compose box, not at the panel's top, so an
+              error from the most recent action (e.g. attaching a new image
+              partway through a long conversation) shows where the user is
+              actually looking -- not disconnected above scrolled-past
+              history it has nothing to do with. */}
+          {error && (
+            <div className="mb-2">
+              <Alert variant="error">{error}</Alert>
+            </div>
+          )}
           {pendingImage && (
             <div className="mb-2 flex items-center gap-2 rounded-card border border-slate-200 bg-white px-2 py-1.5 shadow-card">
               <button

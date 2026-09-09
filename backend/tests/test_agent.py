@@ -1,9 +1,11 @@
+import re
 from dataclasses import dataclass, field
 from types import SimpleNamespace
 
 import pytest
 
-from app.models import EmailLog, Message
+from app.agent import agent_service
+from app.models import CalendarEventLog, EmailLog, Message
 
 
 @dataclass
@@ -42,8 +44,8 @@ def test_agent_persists_tool_and_assistant_messages(client, current_user_overrid
     )
     monkeypatch.setattr("app.agent.agent_service.select_tools", lambda messages: next(turns))
     monkeypatch.setattr(
-        "app.mcp.client.call_tool",
-        lambda name, args: [
+        "app.tools.search_documents.run",
+        lambda query, project_id, top_k=5: [
             {"document_id": "00000000-0000-0000-0000-000000000001", "filename": "a.pdf", "page": 3, "content": "內容"}
         ],
     )
@@ -68,7 +70,7 @@ def test_agent_persists_tool_and_assistant_messages(client, current_user_overrid
     assert messages[2].metadata_["sources"][0]["filename"] == "a.pdf"
 
 
-def test_agent_draft_email_persists_draft_but_never_calls_mcp(
+def test_agent_draft_email_persists_draft_but_never_sends(
     client, current_user_override, alice, db_session, monkeypatch
 ):
     current_user_override(alice)
@@ -88,10 +90,10 @@ def test_agent_draft_email_persists_draft_but_never_calls_mcp(
     )
     monkeypatch.setattr("app.agent.agent_service.select_tools", lambda messages: next(turns))
 
-    def _fail_if_called(name, args):
-        raise AssertionError(f"MCP should never be called for {name}")
+    def _fail_if_called(*args, **kwargs):
+        raise AssertionError("send_email should never be called from the Agent's tool loop")
 
-    monkeypatch.setattr("app.mcp.client.call_tool", _fail_if_called)
+    monkeypatch.setattr("app.tools.send_email.run", _fail_if_called)
 
     response = client.post(f"/api/projects/{project_id}/agent", json={"message": "寄給 PM"})
     assert response.status_code == 200
@@ -108,6 +110,93 @@ def test_agent_draft_email_persists_draft_but_never_calls_mcp(
     assert email_log.body == "內容"
     assert str(email_log.project_id) == project_id
     assert str(email_log.user_id) == alice["id"]
+
+
+def test_agent_fetch_web_page_calls_external_mcp_server_tool(
+    client, current_user_override, alice, db_session, monkeypatch
+):
+    # Confirms the dispatch wiring (agent_service.execute_workflow's
+    # fetch_web_page branch -> app.tools.fetch_url.run) end-to-end. The
+    # MCP client itself is mocked at web_fetch_service's subprocess
+    # boundary in tests/test_tools.py -- this test only needs to prove the
+    # Agent actually calls that tool function, not re-verify the MCP
+    # transport.
+    current_user_override(alice)
+    project_id = client.post("/api/projects", json={"name": "T3"}).json()["id"]
+
+    turns = iter(
+        [
+            _FakeMessage(content=[_tool_use_block("fetch_web_page", {"url": "https://example.com"})]),
+            _FakeMessage(content=[_text_block("這是外部網頁的內容摘要。")], stop_reason="end_turn"),
+        ]
+    )
+    monkeypatch.setattr("app.agent.agent_service.select_tools", lambda messages: next(turns))
+    monkeypatch.setattr(
+        "app.tools.fetch_url.run",
+        lambda url, max_length=5000: {"url": url, "content": "# Example Domain"},
+    )
+
+    response = client.post(
+        f"/api/projects/{project_id}/agent", json={"message": "幫我看一下 https://example.com 的內容"}
+    )
+    assert response.status_code == 200
+    body = response.json()
+
+    fetch_call = next(tc for tc in body["tool_calls"] if tc["tool"] == "fetch_web_page")
+    assert fetch_call["input"]["url"] == "https://example.com"
+    assert fetch_call["output"]["content"] == "# Example Domain"
+
+
+def test_agent_create_calendar_event_persists_draft_but_never_creates(
+    client, current_user_override, alice, db_session, monkeypatch
+):
+    current_user_override(alice)
+    project_id = client.post("/api/projects", json={"name": "T3"}).json()["id"]
+
+    turns = iter(
+        [
+            _FakeMessage(
+                content=[
+                    _tool_use_block(
+                        "create_calendar_event",
+                        {
+                            "summary": "會勘",
+                            "start_datetime": "2026-09-16T14:00:00+08:00",
+                            "end_datetime": "2026-09-16T15:00:00+08:00",
+                        },
+                    )
+                ]
+            ),
+            _FakeMessage(content=[_text_block("已產生日曆事件草稿，請確認後建立。")], stop_reason="end_turn"),
+        ]
+    )
+    monkeypatch.setattr("app.agent.agent_service.select_tools", lambda messages: next(turns))
+
+    def _fail_if_called(*args, **kwargs):
+        raise AssertionError("create_calendar_event tool should never be called from the Agent's tool loop")
+
+    monkeypatch.setattr("app.tools.create_calendar_event.run", _fail_if_called)
+
+    response = client.post(f"/api/projects/{project_id}/agent", json={"message": "安排一個會勘"})
+    assert response.status_code == 200
+    body = response.json()
+
+    draft_call = next(tc for tc in body["tool_calls"] if tc["tool"] == "create_calendar_event")
+    assert draft_call["output"]["status"] == "draft"
+    assert draft_call["output"]["summary"] == "會勘"
+
+    event_log = db_session.query(CalendarEventLog).filter_by(project_id=project_id).one()
+    assert event_log.status == "draft"
+    assert event_log.summary == "會勘"
+    assert str(event_log.project_id) == project_id
+    assert str(event_log.user_id) == alice["id"]
+
+
+def test_agent_system_prompt_includes_current_taipei_datetime():
+    prompt = agent_service._build_system_prompt()
+
+    assert "Asia/Taipei" in prompt
+    assert re.search(r"\d{4}-\d{2}-\d{2}", prompt)
 
 
 def _image_bytes() -> bytes:

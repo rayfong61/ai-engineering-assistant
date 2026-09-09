@@ -22,12 +22,22 @@ GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
 GOOGLE_USERINFO_URL = "https://www.googleapis.com/oauth2/v2/userinfo"
 GMAIL_SEND_URL = "https://gmail.googleapis.com/gmail/v1/users/me/messages/send"
 GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send"
+# calendar.events was added on top of the original gmail.send-only grant (a
+# deliberate exception to CLAUDE.md rule #2, approved -- see CLAUDE.md's
+# "Deviation from this file's own rule #2") so app/services/calendar_service.py
+# can create real Calendar events using this exact same OAuth
+# client/credential/refresh-token store, not a second OAuth flow. A user who
+# connected before this change must disconnect+reconnect to actually be
+# granted it -- Google doesn't retroactively add scope to an existing
+# refresh token.
+CALENDAR_EVENTS_SCOPE = "https://www.googleapis.com/auth/calendar.events"
 # Users can connect a Gmail account that differs from their Supabase-login
 # Google account, so the login email can't stand in for it -- "email" is
-# requested (on top of gmail.send) purely so /oauth2/v2/userinfo can report
-# which address was actually connected. This is the minimal scope for that:
-# it does not grant any Gmail-data access beyond what gmail.send already did.
-GMAIL_OAUTH_SCOPES = f"{GMAIL_SEND_SCOPE} email"
+# requested (on top of gmail.send + calendar.events) purely so
+# /oauth2/v2/userinfo can report which address was actually connected. This
+# is the minimal scope for that: it does not grant any Gmail-data access
+# beyond what gmail.send already did.
+GMAIL_OAUTH_SCOPES = f"{GMAIL_SEND_SCOPE} {CALENDAR_EVENTS_SCOPE} email"
 STATE_TTL_SECONDS = 300
 
 _HTTP_TIMEOUT = 10
@@ -74,6 +84,14 @@ def _encrypt(token: str) -> str:
 
 def _decrypt(token: str) -> str:
     return Fernet(GMAIL_TOKEN_ENCRYPTION_KEY.encode()).decrypt(token.encode()).decode()
+
+
+# _decrypt and _refresh_access_token (below) are imported directly by
+# app/services/calendar_service.py -- deliberate, not an accidental leak.
+# Both services share one OAuth grant/credential store on purpose (see
+# GMAIL_OAUTH_SCOPES above), so sharing these two helpers is the minimal
+# change; don't duplicate them there, and don't "fix" this by making them
+# public without a real second reason.
 
 
 def handle_callback(db: Session, code: str, state: str) -> str:
@@ -164,7 +182,7 @@ def _refresh_access_token(refresh_token: str) -> str:
 
 
 def send_email(db: Session, user_id: uuid.UUID, to: str, subject: str, body: str) -> dict:
-    """Never raises -- the only caller (app.mcp.tools.send_email) depends on
+    """Never raises -- the only caller (app.tools.send_email) depends on
     this always returning the {"status": ..., "message": ...} shape."""
     credential = db.get(GmailCredential, user_id)
     if not credential:

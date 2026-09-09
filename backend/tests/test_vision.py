@@ -1,7 +1,22 @@
+import anthropic
+import httpx
 import pytest
 
 from app.models import VisionAnalysis
 from app.services import claude_service
+
+
+def _fake_dimension_error() -> anthropic.BadRequestError:
+    # Mirrors the real error Claude's API returns for an image with either
+    # dimension over 8000px, regardless of file size in bytes.
+    request = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+    response = httpx.Response(400, request=request, json={"error": {"message": "boom"}})
+    return anthropic.BadRequestError(
+        "messages.0.content.0.image.source.base64.data: "
+        "At least one of the image dimensions exceed max allowed size: 8000 pixels",
+        response=response,
+        body=None,
+    )
 
 
 def _image_bytes() -> bytes:
@@ -72,6 +87,30 @@ def test_upload_rejects_oversized_image(client, current_user_override, alice, mo
     )
 
     assert response.status_code == 400
+
+
+def test_upload_reports_actionable_error_for_oversized_dimensions(
+    client, current_user_override, alice, monkeypatch
+):
+    # A real production failure: a photo well under MAX_IMAGE_SIZE (bytes)
+    # can still exceed Claude's own 8000px-per-side limit -- this must not
+    # be reported as the generic "請稍後再試" (retrying can never succeed;
+    # the image's pixel dimensions won't change on their own).
+    def _raise(*a, **k):
+        raise _fake_dimension_error()
+
+    monkeypatch.setattr("app.services.vision_service.analyze_engineering_image", _raise)
+    current_user_override(alice)
+    project_id = client.post("/api/projects", json={"name": "T3"}).json()["id"]
+
+    response = client.post(
+        f"/api/projects/{project_id}/vision",
+        files={"file": ("photo.png", _image_bytes(), "image/png")},
+    )
+
+    assert response.status_code == 400
+    assert "8000" in response.json()["detail"]
+    assert "請稍後再試" not in response.json()["detail"]
 
 
 def test_member_can_upload_and_list_vision_analysis(client, current_user_override, alice, db_session):

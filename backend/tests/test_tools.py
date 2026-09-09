@@ -2,7 +2,7 @@ import json
 
 import httpx
 
-from app.mcp.tools import geo, search_documents, send_email, weather
+from app.tools import create_calendar_event, fetch_url, geo, search_documents, send_email, weather
 from app.models import Document, DocumentChunk, Project
 from app.models.document import EMBEDDING_DIM
 
@@ -58,10 +58,9 @@ class _Response:
 
 
 class _NonClosingSession:
-    """Wraps the test's db_session so app.mcp.tools.search_documents.run()
-    (which opens its own SessionLocal() and always calls db.close() in a
-    finally block, since it normally runs on the separate mcp-server
-    process with no request-scoped session to reuse) operates against the
+    """Wraps the test's db_session so app.tools.search_documents.run()
+    (which opens its own SessionLocal(), since it has no FastAPI
+    Depends(get_db) request-scoped session to reuse) operates against the
     test's SAVEPOINT-rolled-back session instead of a real, separate
     connection -- close() is swallowed so the fixture's session stays open
     for the test's own assertions afterward."""
@@ -78,7 +77,7 @@ class _NonClosingSession:
 
 def test_search_documents_tool_scopes_to_project(db_session, alice, monkeypatch):
     monkeypatch.setattr(
-        "app.mcp.tools.search_documents.SessionLocal", lambda: _NonClosingSession(db_session)
+        "app.tools.search_documents.SessionLocal", lambda: _NonClosingSession(db_session)
     )
     monkeypatch.setattr(
         "app.services.embedding_service.embed_query", lambda text: [0.1] * EMBEDDING_DIM
@@ -124,7 +123,7 @@ def test_search_documents_tool_scopes_to_project(db_session, alice, monkeypatch)
 
 def test_search_documents_tool_returns_empty_for_project_with_no_chunks(db_session, alice, monkeypatch):
     monkeypatch.setattr(
-        "app.mcp.tools.search_documents.SessionLocal", lambda: _NonClosingSession(db_session)
+        "app.tools.search_documents.SessionLocal", lambda: _NonClosingSession(db_session)
     )
     monkeypatch.setattr(
         "app.services.embedding_service.embed_query", lambda text: [0.1] * EMBEDDING_DIM
@@ -138,7 +137,7 @@ def test_search_documents_tool_returns_empty_for_project_with_no_chunks(db_sessi
 
 
 def test_send_email_tool_mock_mode_returns_sent(monkeypatch):
-    monkeypatch.setattr("app.mcp.tools.send_email.EMAIL_MODE", "mock")
+    monkeypatch.setattr("app.tools.send_email.EMAIL_MODE", "mock")
 
     result = send_email.run("pm@example.com", "subject", "body")
 
@@ -149,7 +148,7 @@ def test_send_email_tool_non_mock_mode_fails_cleanly(monkeypatch):
     # Gmail mode requires a user_id (there's no one to send on behalf of
     # otherwise) -- missing it must fail rather than silently pretending to
     # send.
-    monkeypatch.setattr("app.mcp.tools.send_email.EMAIL_MODE", "gmail")
+    monkeypatch.setattr("app.tools.send_email.EMAIL_MODE", "gmail")
 
     result = send_email.run("pm@example.com", "subject", "body")
 
@@ -157,7 +156,7 @@ def test_send_email_tool_non_mock_mode_fails_cleanly(monkeypatch):
 
 
 def test_send_email_tool_gmail_mode_delegates_to_gmail_service(monkeypatch, alice):
-    monkeypatch.setattr("app.mcp.tools.send_email.EMAIL_MODE", "gmail")
+    monkeypatch.setattr("app.tools.send_email.EMAIL_MODE", "gmail")
     monkeypatch.setattr(
         "app.services.gmail_service.send_email",
         lambda db, user_id, to, subject, body: {"status": "sent", "message": f"sent to {to}"},
@@ -169,9 +168,56 @@ def test_send_email_tool_gmail_mode_delegates_to_gmail_service(monkeypatch, alic
 
 
 def test_send_email_tool_unknown_mode_fails_cleanly(monkeypatch):
-    monkeypatch.setattr("app.mcp.tools.send_email.EMAIL_MODE", "something-else")
+    monkeypatch.setattr("app.tools.send_email.EMAIL_MODE", "something-else")
 
     result = send_email.run("pm@example.com", "subject", "body")
+
+    assert result["status"] == "failed"
+
+
+_CAL_START = "2026-09-16T14:00:00+08:00"
+_CAL_END = "2026-09-16T15:00:00+08:00"
+
+
+def test_create_calendar_event_tool_mock_mode_returns_created(monkeypatch):
+    monkeypatch.setattr("app.tools.create_calendar_event.CALENDAR_MODE", "mock")
+
+    result = create_calendar_event.run("會勘", _CAL_START, _CAL_END)
+
+    assert result["status"] == "created"
+
+
+def test_create_calendar_event_tool_non_mock_mode_without_user_id_fails_cleanly(monkeypatch):
+    # google_calendar mode requires a user_id (there's no one to create the
+    # event on behalf of otherwise) -- missing it must fail rather than
+    # silently pretending to create.
+    monkeypatch.setattr("app.tools.create_calendar_event.CALENDAR_MODE", "google_calendar")
+
+    result = create_calendar_event.run("會勘", _CAL_START, _CAL_END)
+
+    assert result["status"] == "failed"
+
+
+def test_create_calendar_event_tool_google_calendar_mode_delegates_to_calendar_service(monkeypatch, alice):
+    monkeypatch.setattr("app.tools.create_calendar_event.CALENDAR_MODE", "google_calendar")
+    monkeypatch.setattr(
+        "app.services.calendar_service.create_event",
+        lambda db, user_id, summary, start_datetime, end_datetime, description=None, attendees=None: {
+            "status": "created",
+            "message": "ok",
+            "google_event_id": "evt-1",
+        },
+    )
+
+    result = create_calendar_event.run("會勘", _CAL_START, _CAL_END, user_id=alice["id"])
+
+    assert result == {"status": "created", "message": "ok", "google_event_id": "evt-1"}
+
+
+def test_create_calendar_event_tool_unknown_mode_fails_cleanly(monkeypatch):
+    monkeypatch.setattr("app.tools.create_calendar_event.CALENDAR_MODE", "something-else")
+
+    result = create_calendar_event.run("會勘", _CAL_START, _CAL_END)
 
     assert result["status"] == "failed"
 
@@ -370,12 +416,35 @@ def test_check_site_location_tool_fails_cleanly_on_geocode_error(monkeypatch):
     assert "error" in result
 
 
-# The full MCP protocol round trip (Agent -> MCP Client -> mcp-server
-# container -> tool -> service, over real Streamable HTTP on the Docker
-# Compose network) is verified manually rather than with an in-process
-# ASGI test here -- spec2.md section 37's Day 3 risk note explicitly says
-# not to over-polish MCP protocol details given the SDK is the team's
-# least-familiar piece. Manual verification: `docker compose up mcp-server
-# backend`, then call app.mcp.client.call_tool("search_documents", {...})
-# from a backend shell against a project with real ingested documents and
-# confirm real chunks come back through the network hop.
+def test_fetch_url_tool_returns_content_from_external_mcp_server(monkeypatch):
+    async def _fake_call_fetch_tool(url, max_length):
+        return "# Example Domain\nThis domain is for illustrative examples."
+
+    monkeypatch.setattr(
+        "app.services.web_fetch_service._call_fetch_tool", _fake_call_fetch_tool
+    )
+
+    result = fetch_url.run("https://example.com")
+
+    assert result["url"] == "https://example.com"
+    assert "Example Domain" in result["content"]
+
+
+def test_fetch_url_tool_fails_cleanly_when_mcp_server_errors(monkeypatch):
+    async def _raise(url, max_length):
+        raise RuntimeError("subprocess boom")
+
+    monkeypatch.setattr("app.services.web_fetch_service._call_fetch_tool", _raise)
+
+    result = fetch_url.run("https://example.com")
+
+    assert "error" in result
+
+
+# There is no dispatch/transport layer to test for most of these -- Agent
+# tool calls (agent_service.py) and the email send path
+# (email_service.confirm_and_send) each import and call the relevant
+# app.tools.<name>.run() function directly, exactly like any other in-repo
+# function call. fetch_url is the one exception: it really does talk to an
+# external MCP server subprocess, so its test mocks at that boundary
+# (_call_fetch_tool) instead of asserting there's nothing to mock.

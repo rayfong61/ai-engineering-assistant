@@ -2,7 +2,7 @@ from app.services import weather_service
 
 
 def run(location: str) -> dict:
-    """Thin MCP wrapper -- no DB access needed, so no SessionLocal here
+    """Thin tool wrapper -- no DB access needed, so no SessionLocal here
     (unlike search_documents.py). Never raises: external-API failures are
     caught and returned as {"error": ...} so a flaky CWA response degrades
     the Agent's answer gracefully instead of failing the whole /agent

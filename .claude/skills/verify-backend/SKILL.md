@@ -42,11 +42,6 @@ the feature works end-to-end. Treat these as two separate questions.
      claims to, especially on a follow-up/revision turn) — a plausible-sounding
      assistant reply is not proof a tool was invoked; check the real
      `tool_calls`/`messages` for the turn.
-   - **MCP-server-side changes** — confirm `docker compose restart mcp-server`
-     actually happened (a hook in this repo does this automatically after edits
-     under `backend/app/mcp/`, but confirm it if MCP behavior looks stale) before
-     concluding a fix works or doesn't.
-
    If the change falls into one of these categories, say so explicitly and either
    perform the manual check (use the `run` skill to drive the app in a browser) or
    tell the user it still needs manual verification — don't let a green `pytest`

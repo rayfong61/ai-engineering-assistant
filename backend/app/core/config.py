@@ -31,6 +31,11 @@ VOYAGE_EMBEDDING_MODEL = os.getenv("VOYAGE_EMBEDDING_MODEL", "voyage-4-large")
 STORAGE_BUCKET = "engineering-documents"
 
 EMAIL_MODE = os.getenv("EMAIL_MODE", "mock")
+# mock: logs a fake event creation, never touches Google Calendar (default).
+# google_calendar: creates a real event via Calendar API v3, reusing the same
+# per-user Gmail OAuth credential extended with the calendar.events scope
+# (see gmail_service.GMAIL_OAUTH_SCOPES) -- not a separate OAuth setup.
+CALENDAR_MODE = os.getenv("CALENDAR_MODE", "mock")
 GMAIL_CLIENT_ID = os.getenv("GMAIL_CLIENT_ID", "")
 GMAIL_CLIENT_SECRET = os.getenv("GMAIL_CLIENT_SECRET", "")
 GMAIL_REDIRECT_URI = os.getenv("GMAIL_REDIRECT_URI", "")
@@ -41,15 +46,10 @@ GMAIL_TOKEN_ENCRYPTION_KEY = os.getenv("GMAIL_TOKEN_ENCRYPTION_KEY", "")
 
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
 
-# ── CWA (中央氣象署開放資料平台，天氣查詢 MCP 工具) ─────────────────
+# ── CWA (中央氣象署開放資料平台，天氣查詢工具) ─────────────────
 CWA_API_KEY = os.getenv("CWA_API_KEY", "")
 
 # GIS 案址查詢工具的地理編碼改用 OpenStreetMap Nominatim（免申請、免金鑰，
 # 見 app/services/geo_service.py）——TGOS 的門牌位置比對服務僅開放政府機關/
 # 公營事業/學術及法人團體/公司行號申請，個人無法申請，故不採用，這裡不需要
 # 對應的 API key 常數。
-
-# The mcp-server container, reached over the internal Docker Compose network
-# -- never given a published port the frontend/browser can reach (spec2.md
-# section 21/30). The backend's Agent is its only client.
-MCP_SERVER_URL = os.getenv("MCP_SERVER_URL", "http://mcp-server:8001/mcp")

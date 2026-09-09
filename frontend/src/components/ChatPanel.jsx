@@ -138,12 +138,6 @@ export default function ChatPanel({ projectId }) {
           <span className="truncate text-sm font-medium text-slate-700">對話</span>
         </div>
 
-        {error && (
-          <div className="p-3">
-            <Alert variant="error">{error}</Alert>
-          </div>
-        )}
-
         <div className="flex-1 overflow-y-auto p-4">
           {messages.length === 0 ? (
             <p className="py-8 text-center text-sm text-slate-400">
@@ -197,6 +191,16 @@ export default function ChatPanel({ projectId }) {
             </div>
           )}
         </div>
+
+        {/* Rendered next to the compose box, not at the panel's top, so an
+            error from the most recent question shows where the user is
+            actually looking -- not disconnected above scrolled-past
+            history it has nothing to do with. */}
+        {error && (
+          <div className="mx-3 mb-2">
+            <Alert variant="error">{error}</Alert>
+          </div>
+        )}
 
         <form
           onSubmit={handleSend}

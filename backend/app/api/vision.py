@@ -1,6 +1,8 @@
+import logging
 import uuid
 from pathlib import Path
 
+import anthropic
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from sqlalchemy.orm import Session
 
@@ -14,6 +16,8 @@ from app.schemas.vision import VisionAnalysisOut
 from app.services import vision_service
 from app.services.activity_service import log_activity
 from app.services.vision_service import SIGNED_URL_EXPIRES_IN, _signed_url_for
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/projects/{project_id}/vision", tags=["vision"])
 
@@ -109,12 +113,27 @@ async def analyze_image(
             record.storage_path, content, {"content-type": media_type}
         )
     except Exception as exc:
+        logger.exception("Vision image upload to storage failed for project %s", project_id)
         db.rollback()
         raise HTTPException(status_code=502, detail="上傳到儲存空間失敗，請稍後再試") from exc
 
     try:
         result = vision_service.analyze_engineering_image(content, media_type)
+    except anthropic.BadRequestError as exc:
+        # Claude's Vision API hard-rejects any image with either dimension
+        # over 8000px, regardless of file size in bytes (a 4MB panorama can
+        # still trip this while passing the MAX_IMAGE_SIZE check above) --
+        # this is not transient, so "請稍後再試" would be actively
+        # misleading: retrying the same image can never succeed.
+        db.rollback()
+        if "exceed max allowed size" in str(exc):
+            raise HTTPException(
+                status_code=400, detail="圖片尺寸過大（寬或高超過 8000 像素），請縮小圖片後再試"
+            ) from exc
+        logger.exception("Vision analysis rejected by Claude for project %s", project_id)
+        raise HTTPException(status_code=502, detail="圖片分析失敗，請稍後再試") from exc
     except Exception as exc:
+        logger.exception("Vision analysis failed for project %s", project_id)
         db.rollback()
         raise HTTPException(status_code=502, detail="圖片分析失敗，請稍後再試") from exc
 

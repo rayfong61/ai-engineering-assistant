@@ -4,13 +4,13 @@ from app.services import embedding_service, rag_service
 
 
 def run(query: str, project_id: str, top_k: int = 5) -> list[dict]:
-    """Runs on the mcp-server process -- its own DB session, since there's
-    no FastAPI Depends(get_db) here.
+    """Opens its own DB session rather than taking one as a parameter, since
+    there's no FastAPI Depends(get_db) at this layer.
 
-    Trust boundary: project_id is trusted as-is. The MCP server has no
+    Trust boundary: project_id is trusted as-is. This function has no
     JWT/user context to check project membership against -- the only
-    caller is the backend's Agent, which already ran require_project_member
-    before invoking this tool (see app/mcp/server.py's module docstring).
+    caller is the backend's Agent (agent_service.execute_workflow), which
+    already ran require_project_member before invoking this tool.
     """
     db = SessionLocal()
     try:

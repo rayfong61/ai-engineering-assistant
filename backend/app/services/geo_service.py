@@ -47,9 +47,9 @@ _zones_cache: list[dict] | None = None
 
 def _load_zones() -> list[dict]:
     """Loaded once at first use (lazy, not at module import) -- keeps
-    mcp-server import-time cheap and lets the file be genuinely optional
+    backend import-time cheap and lets the file be genuinely optional
     (missing file degrades to 'zone data unavailable' rather than crashing
-    the whole mcp-server process at startup).
+    backend startup).
 
     The source file must be WGS84 (EPSG:4326, matching Nominatim's returned
     lat/lng) -- many Taiwan government geo datasets default to TWD97

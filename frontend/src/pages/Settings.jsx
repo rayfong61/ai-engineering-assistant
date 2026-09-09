@@ -40,7 +40,7 @@ export default function Settings() {
   }
 
   const handleDisconnect = async () => {
-    if (!window.confirm('確定要中斷 Gmail 連接嗎？之後寄信會失敗，直到重新連接。')) return
+    if (!window.confirm('確定要中斷 Google 帳號連接嗎？之後寄信與建立日曆事件都會失敗，直到重新連接。')) return
     setDisconnecting(true)
     setError(null)
     try {
@@ -80,10 +80,13 @@ export default function Settings() {
               <Mail className="mt-0.5 h-5 w-5 text-slate-400" />
             )}
             <div>
-              <p className="font-medium text-slate-900">Gmail 寄信</p>
+              <p className="font-medium text-slate-900">Google 帳號授權（Gmail 寄信 + Calendar 建立事件）</p>
               <p className="mt-1 text-sm text-slate-500">
-                連接 Gmail 帳號後，Agent 起草的 Email 在你按下「Confirm &amp; Send」時會透過 Gmail API
-                真實寄出。這是獨立於登入用的 Google 帳號授權，僅要求 gmail.send 權限。
+                連接 Google 帳號後，Agent 起草的 Email 在你按下「Confirm &amp; Send」時會透過 Gmail API
+                真實寄出；Agent 起草的日曆事件在你按下「Confirm &amp; Create」時會透過 Google Calendar
+                API 真實建立。這是獨立於登入用的 Google 帳號授權，僅要求 gmail.send 與
+                calendar.events 權限。若你在此權限擴充之前就已連接過，請先「中斷連接」再重新連接，
+                才能一併取得 Calendar 權限（Google 不會自動把新權限套用到舊的連接）。
               </p>
               {loading ? (
                 <div className="mt-3">
@@ -113,7 +116,7 @@ export default function Settings() {
                 </Button>
               ) : (
                 <Button size="sm" loading={connecting} onClick={handleConnect}>
-                  連接 Gmail
+                  連接 Google 帳號
                 </Button>
               )}
             </div>
